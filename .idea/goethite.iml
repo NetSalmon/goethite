@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<module type="EMPTY_MODULE" version="4">
+  <component name="NewModuleRootManager">
+    <content url="file://$MODULE_DIR$">
+      <sourceFolder url="file://$MODULE_DIR$/crates/goethite-config/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/crates/goethite-elf/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/crates/goethite-id-alloc/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/crates/goethite-intrusive-list/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/crates/goethite-macros-impl/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/crates/goethite-macros/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/crates/goethite-riscv64/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/crates/goethite-stack/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/crates/goethite-stdio/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/crates/goethite-sync/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/crates/goethite-syscall/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/src" isTestSource="false" />
+      <excludeFolder url="file://$MODULE_DIR$/target" />
+    </content>
+    <orderEntry type="inheritedJdk" />
+    <orderEntry type="sourceFolder" forTests="false" />
+  </component>
+</module>

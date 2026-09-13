@@ -1,0 +1,7 @@
+/target
+/.claude
+/.agent
+/.commandcode
+/.rule
+/.fuckucoderc.json
+/workspace

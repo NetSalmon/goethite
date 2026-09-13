@@ -1,0 +1,14 @@
+[package]
+name = "goethite-riscv64"
+version = "0.1.0"
+edition = "2024"
+
+[lib]
+test = false
+bench = false
+doctest = false
+
+[dependencies]
+goethite-macros = { path = "../goethite-macros" }
+goethite-config = { path = "../goethite-config" }
+paste = "1.0.15"

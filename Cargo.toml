@@ -1,0 +1,38 @@
+[package]
+name = "goethite"
+version = "0.1.0"
+edition = "2024"
+license = "GPL-3.0-or-later"
+authors = ["netsalmon"]
+readme = "README.md"
+
+[dependencies]
+goethite-macros = { path = "crates/goethite-macros" }
+goethite-riscv64 = { path = "crates/goethite-riscv64" }
+goethite-sync = { path = "crates/goethite-sync" }
+goethite-config = { path = "crates/goethite-config" }
+goethite-id-alloc = { path = "crates/goethite-id-alloc" }
+goethite-intrusive-list = { path = "crates/goethite-intrusive-list" }
+goethite-stdio = { path = "crates/goethite-stdio" }
+fdt = "0.2.0-alpha2"
+thiserror = { version = "2.0.20", default-features = false }
+
+[[bin]]
+name = "goethite"
+path = "src/main.rs"
+test = false
+bench = false
+
+[workspace]
+members = [
+    "crates/*"
+]
+
+[profile.dev]
+lto = "fat"
+codegen-units = 1
+
+[profile.release]
+opt-level = 3
+lto = "fat"
+codegen-units = 1
