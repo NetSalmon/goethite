@@ -1,9 +1,9 @@
 //! goethite-stack 的分配版（alloc）模型：拥有所有数据的 [`Stack`]。
 //!
-//! 该模块仅在启用 `alloc` feature 时编译。相较于零拷贝的 [`crate::StackRef`]，这里把
+//! 该模块仅在启用 `alloc` feature 时编译。相较于零拷贝的 [`StackRef`]，这里把
 //! argv / env / auxv 还原为拥有所有权的集合：
-//! - 键值对（env、auxv）使用 [`alloc::collections::BTreeMap`]；
-//! - 字符串数组（argv）使用 [`alloc::vec::Vec<String>`]。
+//! - 键值对（env、auxv）使用 [`BTreeMap`]；
+//! - 字符串数组（argv）使用 [`Vec<String>`]。
 //!
 //! 提供 [`Stack::parse`]（分配反序列化）与 [`Stack::to_bytes`]（分配序列化，返回
 //! `Vec<u8>`），也提供 [`Stack::serialized_len`] 用于预分配。

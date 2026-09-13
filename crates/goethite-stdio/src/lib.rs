@@ -3,7 +3,7 @@
 //! 通过 SBI 调试控制台（DBCN）输出文本，向内核提供
 //! [`print!`](macro@print)、[`println!`](macro@println)、
 //! [`eprint!`](macro@eprint)、[`eprintln!`](macro@eprintln) 一组宏，
-//! 均支持 [`core::fmt`] 的格式化语法。
+//! 均支持 [`fmt`] 的格式化语法。
 
 #![no_std]
 

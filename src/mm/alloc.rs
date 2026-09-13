@@ -3,8 +3,8 @@
 //! 提供两个入口：
 //!
 //! - [`FRAME_ALLOCATOR`]：面向物理页帧的伙伴系统（[`BuddyAllocator`]），
-//!   由 [`#[lazy(spin)]`](goethite_macros::lazy) 包装，首次访问时才初始化。
-//! - [`GLOBAL_ALLOCATOR`]：面向字节的 [`core::alloc::GlobalAlloc`]，底层是
+//!   由 [`#[lazy(spin)]`](lazy) 包装，首次访问时才初始化。
+//! - [`GLOBAL_ALLOCATOR`]：面向字节的 [`GlobalAlloc`]，底层是
 //!   [`Caches`]（SLUB 对象缓存），供 `alloc` / `Vec` 等使用。
 use core::alloc::{GlobalAlloc, Layout};
 

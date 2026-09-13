@@ -4,9 +4,9 @@
 //! 并实现基于 [`ElfHeader`] 遍历程序头的迭代器 [`ProgramHeaderIterator`]。
 //!
 //! - `ProgramType`：程序头类型（`p_type`，如 `LOAD`、`DYNAMIC`），由
-//!   [`numeric!`](goethite_macros::numeric) 生成。
+//!   [`numeric!`](numeric) 生成。
 //! - `ProgramFlags`：程序头标志位（`p_flags`，`execute`/`write`/`read`），由
-//!   [`bits!`](goethite_macros::bits) 生成。
+//!   [`bits!`](bits) 生成。
 
 use core::{
     fmt::{Display, Formatter},

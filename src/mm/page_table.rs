@@ -1,6 +1,6 @@
 //! Sv39 页表与页表项。
 //!
-//! - [`PageTableEntry`]：用 [`bits!`](goethite_macros::bits) 按 Sv39 规范包装
+//! - [`PageTableEntry`]：用 [`bits!`](bits) 按 Sv39 规范包装
 //!   `u64` 页表项，包含 `V/R/W/X/U/G/A/D` 标志、RWX 权限位与
 //!   PPN0/PPN1/PPN2（三者合起来是 44 位物理页号 PPN）。
 //! - [`PageTableEntryFlags`]：页表项的标志位视图（只含标志与权限位，不含页号）。

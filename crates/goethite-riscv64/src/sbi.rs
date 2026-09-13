@@ -219,7 +219,7 @@ pub mod rfence {
 
     /// 对掩码指定的 hart 集合发起 `fence.i`。
     ///
-    /// `mask` / `base` 的含义与 [`super::ipi::send_ipi`] 相同；`mask` 相对
+    /// `mask` / `base` 的含义与 [`ipi::send_ipi`] 相同；`mask` 相对
     /// `base` 起算。
     pub fn remote_fence_i(mask: u64, base: u64) -> Result {
         ecall(Eid::RFENCE, 0, [mask, base, 0, 0, 0, 0])

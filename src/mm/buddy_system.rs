@@ -42,7 +42,7 @@ impl<const MAX_ORDER: usize> BuddyAllocator<MAX_ORDER> {
         }
     }
 
-    /// 把一段物理地址范围 [`core::ops::Range`]（字节寻址）交给分配器管理。
+    /// 把一段物理地址范围 [`Range`]（字节寻址）交给分配器管理。
     ///
     /// 起始地址会对齐到该分配器的最大阶块大小，然后在 `add_frame` 中按阶
     /// 拆分并以空闲块形式挂入对应链表。

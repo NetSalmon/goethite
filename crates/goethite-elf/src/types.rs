@@ -6,7 +6,7 @@
 //! [`ProgramHeader`]，以及相关的 ELF 常量类型（`ElfType`、`ElfMachine`、
 //! `ElfVersion`、`ElfClass`、`OsAbi`、`Endianness`）与标识 [`ElfIdent`]。
 //! 这些常量/数组包装类型由
-//! [`numeric!`](goethite_macros::numeric) / [`array_struct!`](goethite_macros::array_struct)
+//! [`numeric!`](numeric) / [`array_struct!`](array_struct)
 //! 在下方生成。
 
 pub mod program_header;
