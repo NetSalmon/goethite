@@ -5,6 +5,7 @@
 //! - [`addr`]：Sv39 虚拟地址与物理地址类型及相互转换；
 //! - [`sbi`]：SBI 固件调用封装（`ecall` / legacy 与各扩展）；
 //! - [`registers`]：CSR 与通用寄存器抽象；
+//! - [`trap`]：陷阱（异常 / 中断）类型与 `scause` 解析；
 //! - 自由函数：汇编辅助原语，如 [`wait_for_interrupt`]、[`hart_id`]、
 //!   [`disable_interrupt`] / [`enable_interrupt`]、[`instruction_fence`]。
 //!
@@ -16,6 +17,7 @@ use core::arch::asm;
 pub mod addr;
 pub mod registers;
 pub mod sbi;
+pub mod trap;
 
 /// 停止当前 hart，直到有中断到达。
 ///

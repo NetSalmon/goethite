@@ -3,10 +3,15 @@ pub mod vma;
 
 use alloc::{rc::Weak, sync::Arc, vec::Vec};
 
+use goethite_config::MAX_CPU;
 use goethite_id_alloc::{Id, IdAlloc};
 use goethite_macros::lazy;
+use goethite_sync::PerCpu;
 
 use crate::{fs::FileDesc, proc::vma::MemorySet};
+
+#[lazy]
+pub static CURRENT_TASK: PerCpu<Option<TaskId>, MAX_CPU> = PerCpu::new([None; MAX_CPU]);
 
 /// 一次上下文切换需保存 / 恢复的寄存器集合。
 pub struct Context {

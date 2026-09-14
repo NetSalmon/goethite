@@ -44,6 +44,8 @@ mod numeric;
 /// - `From<$ori_type>` / `Into<$ori_type>` bidirectional conversions
 /// - `Deref<Target = $ori_type>` for transparent access to the raw value
 /// - `Copy`, `Clone`, `PartialEq`, `Eq`, `PartialOrd`, `Ord`, `Hash`, `Default`
+/// - `BitAnd` / `BitOr` / `BitXor` / `Shl` / `Shr` against the inner integer type
+///   (e.g. `self & mask`, `self << n`), each returning the wrapper type
 /// - `Debug`: prints the raw value plus every field's current value,
 ///   e.g. `Status { raw: 0x15, ready: true, error: false, mode: 5 }`
 /// - A `const fn from(value) -> Self` and `const fn new() -> Self` (zero-initialized) constructor

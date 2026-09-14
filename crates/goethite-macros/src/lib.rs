@@ -12,9 +12,7 @@
 
 pub mod num;
 
-pub use goethite_macros_impl::{
-    Id, array_struct, bits, const_val, lazy, numeric, rwlock, spin,
-};
+pub use goethite_macros_impl::{Id, array_struct, bits, const_val, lazy, numeric, rwlock, spin};
 
 /// 安全加载 64 位符号地址。
 ///

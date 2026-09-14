@@ -6,10 +6,17 @@ use goethite_riscv64::addr::{PhysicalAddr, VirtualAddr};
 
 use crate::{
     FDT_ADDR,
-    device::desc::DEVICE_DESC_MANAGER,
+    device::{desc::DEVICE_DESC_MANAGER, driver},
     error::{KernelError, KernelResult},
     mm::{address_space::AS_MANAGER, alloc::FRAME_ALLOCATOR, page_table::PageTableEntryFlags},
 };
+
+/// 探测设备树中的全部设备：匹配驱动、probe 并注册进设备管理器。
+///
+/// 返回成功登记的设备数。需在 [`init_page_table`] 完成设备 MMIO 映射之后调用。
+pub fn init_devices() -> usize {
+    driver::probe_all()
+}
 
 pub fn init_page_table() -> KernelResult<()> {
     let flag = PageTableEntryFlags::builder()

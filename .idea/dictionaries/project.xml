@@ -1,7 +1,19 @@
 <component name="ProjectDictionaryState">
   <dictionary name="project">
     <words>
+      <w>addi</w>
+      <w>csrr</w>
+      <w>csrrw</w>
+      <w>csrw</w>
       <w>riscv</w>
+      <w>scause</w>
+      <w>sepc</w>
+      <w>sret</w>
+      <w>sscratch</w>
+      <w>sstatus</w>
+      <w>stval</w>
+      <w>stvec</w>
+      <w>tgid</w>
     </words>
   </dictionary>
 </component>

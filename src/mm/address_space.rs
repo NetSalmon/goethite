@@ -167,6 +167,56 @@ impl AddressSpace {
         *pte0 = PageTableEntry::new();
     }
 
+    /// 通过虚拟地址 `va` 获取对应的叶页表项（只读）。
+    ///
+    /// 沿 V2/V1/V0 逐级下行；仅当沿途中间页表项有效且对应页表存在时返回
+    /// `Some`。叶页表项自身可能无效（`V=0`），由调用方按需用
+    /// [`PageTableEntry::validate`] 判断是否已建立映射。
+    pub fn pte(&self, va: VirtualAddr) -> Option<&PageTableEntry> {
+        let pt1_key = {
+            let pte2 = self.root.entries.get(va.vpn2())?;
+            if !pte2.validate() {
+                return None;
+            }
+            pte2.ppn() as usize
+        };
+
+        let pt1 = self.children.get(&pt1_key)?;
+        let pte1 = pt1.entries.get(va.vpn1())?;
+        if !pte1.validate() {
+            return None;
+        }
+
+        let pt0 = self.children.get(&(pte1.ppn() as usize))?;
+        pt0.entries.get(va.vpn0())
+    }
+
+    /// 通过虚拟地址 `va` 获取对应的叶页表项（可变），用于就地修改。
+    ///
+    /// 定位语义与 [`pte`](Self::pte) 相同；返回可变引用以便直接修改页表项的
+    /// 标志或物理页号。若 `va` 未被映射，返回 `None`。
+    pub fn pte_mut(&mut self, va: VirtualAddr) -> Option<&mut PageTableEntry> {
+        let pt1_key = {
+            let pte2 = self.root.entries.get(va.vpn2())?;
+            if !pte2.validate() {
+                return None;
+            }
+            pte2.ppn() as usize
+        };
+
+        let pt0_key = {
+            let pt1 = self.children.get(&pt1_key)?;
+            let pte1 = pt1.entries.get(va.vpn1())?;
+            if !pte1.validate() {
+                return None;
+            }
+            pte1.ppn() as usize
+        };
+
+        let pt0 = self.children.get_mut(&pt0_key)?;
+        pt0.entries.get_mut(va.vpn0())
+    }
+
     /// 激活地址空间
     ///
     /// # Safety

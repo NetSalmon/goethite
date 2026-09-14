@@ -2,7 +2,7 @@
 //!
 //! 解析输入的位域类型定义，生成一个 `#[repr(transparent)]` 的包装结构体、
 //! 各比特字段的 `getter` / `setter`、一个消费型 `Builder`、`Debug` 输出，
-//! 以及 `From` / `Deref` / 派生 trait 等实现。字段支持三种形态：
+//! 以及 `From` / `Deref` / 位运算 / 派生 trait 等实现。字段支持三种形态：
 //! [`FieldKind::Bit`]（单个比特）、[`FieldKind::Bits`]（比特区间）、
 //! [`FieldKind::TypedBits`]（带类型转换的比特区间）。
 
@@ -225,6 +225,52 @@ impl Field {
     }
 }
 
+/// 生成位运算实现：`#name` 与底层整数 `#ty` 之间的 `&` / `|` / `^` / `<<` / `>>`，
+/// 结果仍为 `#name`。
+fn bitwise_impls(name: &Ident, ty: &Type) -> TokenStream {
+    quote! {
+        impl core::ops::BitAnd<#ty> for #name {
+            type Output = #name;
+
+            fn bitand(self, rhs: #ty) -> Self::Output {
+                #name(self.0 & rhs)
+            }
+        }
+
+        impl core::ops::BitOr<#ty> for #name {
+            type Output = #name;
+
+            fn bitor(self, rhs: #ty) -> Self::Output {
+                #name(self.0 | rhs)
+            }
+        }
+
+        impl core::ops::BitXor<#ty> for #name {
+            type Output = #name;
+
+            fn bitxor(self, rhs: #ty) -> Self::Output {
+                #name(self.0 ^ rhs)
+            }
+        }
+
+        impl core::ops::Shl<#ty> for #name {
+            type Output = #name;
+
+            fn shl(self, rhs: #ty) -> Self::Output {
+                #name(self.0 << rhs)
+            }
+        }
+
+        impl core::ops::Shr<#ty> for #name {
+            type Output = #name;
+
+            fn shr(self, rhs: #ty) -> Self::Output {
+                #name(self.0 >> rhs)
+            }
+        }
+    }
+}
+
 /// 展开位域定义，生成完整结构体、`Builder` 与 trait 实现。
 impl Input {
     /// 生成位域结构体、`Builder`、`Debug`、`From` / `Deref` 等实现的展开结果。
@@ -242,6 +288,7 @@ impl Input {
         let setters = fields.iter().map(|f| f.setter(ty));
         let builder_setters = fields.iter().map(|f| f.builder_setter(ty));
         let debug_fields = fields.iter().map(|f| f.debug_write());
+        let bitwise = bitwise_impls(name, ty);
 
         quote! {
             #[repr(transparent)]
@@ -312,6 +359,8 @@ impl Input {
                     &self.0
                 }
             }
+
+            #bitwise
         }
     }
 }

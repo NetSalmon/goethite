@@ -24,15 +24,18 @@ pub mod fs;
 pub mod init;
 pub mod mm;
 pub mod proc;
+pub mod trap;
 
 extern crate alloc;
 
-use core::{arch::naked_asm};
+use core::arch::naked_asm;
 
-use goethite_macros::{critical_section};
+use goethite_macros::critical_section;
 use goethite_riscv64::{
     addr::{PhysicalAddr, VirtualAddr},
+    registers::csr::Stvec,
 };
+use trap::entry::__kernel_trap_entry;
 
 const KERNEL_STACK_SIZE: usize = 0x1000 * 16;
 
@@ -61,7 +64,10 @@ pub fn main(ptr: *mut u32) {
         unsafe { FDT_ADDR = fdt_ptr; }
         init::init_buddy_system().unwrap();
         init::init_page_table().unwrap();
+        init::init_devices();
     }
+
+    Stvec::write(__kernel_trap_entry as *const () as u64);
 
     loop {
         core::hint::spin_loop();

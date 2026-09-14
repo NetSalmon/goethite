@@ -10,8 +10,7 @@
 use crate::{
     error::Error,
     raw::{
-        GOETHITE_STACK_MAGIC, HEADER_SIZE, PAIR_SIZE, STRING_ID_SIZE, STRING_REF_SIZE,
-        write_le32,
+        GOETHITE_STACK_MAGIC, HEADER_SIZE, PAIR_SIZE, STRING_ID_SIZE, STRING_REF_SIZE, write_le32,
     },
 };
 
