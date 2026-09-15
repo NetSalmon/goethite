@@ -14,6 +14,9 @@
       <sourceFolder url="file://$MODULE_DIR$/crates/goethite-sync/src" isTestSource="false" />
       <sourceFolder url="file://$MODULE_DIR$/crates/goethite-syscall/src" isTestSource="false" />
       <sourceFolder url="file://$MODULE_DIR$/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/crates/goethite-bitmap/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/crates/goethite-fs/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/crates/goethite-minix/src" isTestSource="false" />
       <excludeFolder url="file://$MODULE_DIR$/target" />
     </content>
     <orderEntry type="inheritedJdk" />

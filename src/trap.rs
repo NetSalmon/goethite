@@ -1,10 +1,12 @@
 pub mod entry;
 
 use goethite_riscv64::{
-    registers::{Context, csr::Sepc},
+    registers::{Registers, csr::Sepc},
     trap::{Exception, Trap},
 };
 use goethite_stdio::println;
+use crate::proc::CURRENT_TASK;
+use crate::proc::schedule::SCHEDULER;
 
 pub enum Todo {
     Return { value: u64, skip: u64 },
@@ -17,7 +19,8 @@ pub enum Todo {
 pub fn trap_handler(sepc: u64, scause: i64, stval: u64, stvec: u64, sstatus: u64, sp: u64) {
     let is_user_trap = stvec == entry::__user_trap_entry as *const () as u64;
 
-    let context = unsafe { &mut *(sp as *mut Context).offset(-1) };
+    let context = unsafe { &mut *(sp as *mut Registers).offset(-1) };
+
 
     let todo = match Trap::from(scause) {
         Trap::Exception(ept) => match ept {
@@ -41,17 +44,32 @@ pub fn trap_handler(sepc: u64, scause: i64, stval: u64, stvec: u64, sstatus: u64
         },
     };
 
-    match todo {
+    Sepc::write(match todo {
         Todo::Return { value, skip } => {
             context.a0 = value;
-            Sepc::modify(|i| i + 4 * skip);
+            sepc + skip * 4
         }
         Todo::NoReturn { skip } => {
-            Sepc::modify(|i| i + 4 * skip);
+            sepc + skip * 4
         }
         Todo::Yield => {
-            todo!()
+            sepc
         }
-        Todo::Discard => (),
+        Todo::Discard => sepc,
+    });
+
+
+    if is_user_trap {
+        let current = CURRENT_TASK.current();
+
+        if let Some(tid) = *current {
+            let clone_context = context.clone();
+
+            if let Some(current_task) = SCHEDULER.lock().tasks.get_mut(&tid) {
+                current_task.context.registers = clone_context;
+                current_task.context.sepc = Sepc::read();
+
+            }
+        }
     }
 }

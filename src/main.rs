@@ -31,10 +31,7 @@ extern crate alloc;
 use core::arch::naked_asm;
 
 use goethite_macros::critical_section;
-use goethite_riscv64::{
-    addr::{PhysicalAddr, VirtualAddr},
-    registers::csr::Stvec,
-};
+use goethite_riscv64::{addr::{PhysicalAddr, VirtualAddr}, breakpoint, registers::csr::Stvec};
 use trap::entry::__kernel_trap_entry;
 
 const KERNEL_STACK_SIZE: usize = 0x1000 * 16;
@@ -62,12 +59,14 @@ pub fn main(ptr: *mut u32) {
     critical_section! {
         let fdt_ptr = PhysicalAddr::from(ptr as usize).as_vaddr();
         unsafe { FDT_ADDR = fdt_ptr; }
-        init::init_buddy_system().unwrap();
-        init::init_page_table().unwrap();
+        let memory = init::init_buddy_system().unwrap();
+        init::init_page_table(&memory).unwrap();
         init::init_devices();
     }
 
     Stvec::write(__kernel_trap_entry as *const () as u64);
+
+    breakpoint();
 
     loop {
         core::hint::spin_loop();

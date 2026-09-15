@@ -24,6 +24,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "goethite-bitmap"
+version = "0.1.0"
+dependencies = [
+ "thiserror",
+]
+
+[[package]]
 name = "goethite-config"
 version = "0.1.0"
 dependencies = [
@@ -35,6 +42,16 @@ name = "goethite-elf"
 version = "0.1.0"
 dependencies = [
  "goethite-macros",
+ "thiserror",
+]
+
+[[package]]
+name = "goethite-fs"
+version = "0.1.0"
+dependencies = [
+ "goethite-config",
+ "goethite-macros",
+ "goethite-sync",
  "thiserror",
 ]
 
@@ -64,6 +81,17 @@ dependencies = [
  "proc-macro2",
  "quote",
  "syn",
+]
+
+[[package]]
+name = "goethite-minix"
+version = "0.1.0"
+dependencies = [
+ "goethite-bitmap",
+ "goethite-config",
+ "goethite-fs",
+ "goethite-macros",
+ "goethite-sync",
 ]
 
 [[package]]

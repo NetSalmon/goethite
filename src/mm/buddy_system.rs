@@ -5,6 +5,14 @@
 //!
 //! `BuddyAllocator` 通过 const 泛型 `MAX_ORDER` 参数化空闲链表的档数，
 //! 因此每个实例能在类型层面静态地编码自己的最大阶数，和配置解耦。
+//!
+//! # 地址语义
+//!
+//! 分配器内部统一以**内核高半区虚拟地址**（物理地址 `+ KERNEL_OFFSET`）记录空闲块，
+//! 因此 [`alloc`](Self::alloc) 返回的地址可被内核直接解引用为指针；[`dealloc`](Self::dealloc)
+//! 也接收同样的虚拟地址。由于 `KERNEL_OFFSET` 低位置零且远大于单个块，加偏移不改变
+//! 块的对齐与相邻关系，伙伴的 XOR 合并逻辑不受影响。调用方 [`insert`](Self::insert)
+//! 传入的仍是**物理**地址范围。
 
 use core::ops::Range;
 
@@ -42,17 +50,19 @@ impl<const MAX_ORDER: usize> BuddyAllocator<MAX_ORDER> {
         }
     }
 
-    /// 把一段物理地址范围 [`Range`]（字节寻址）交给分配器管理。
+    /// 把一段**物理**地址范围 [`Range`]（字节寻址）交给分配器管理。
     ///
     /// 起始地址会对齐到该分配器的最大阶块大小，然后在 `add_frame` 中按阶
-    /// 拆分并以空闲块形式挂入对应链表。
+    /// 拆分并以空闲块形式挂入对应链表。内部记录的是高半区虚拟地址
+    /// （`物理地址 + KERNEL_OFFSET`），故 [`alloc`](Self::alloc) 返回可直接使用的指针。
     pub fn insert(&mut self, range: Range<usize>) {
-        let start = align(range.start, 1 << (MAX_ORDER + 11));
-        self.add_frame(start, range.end);
+        let start = align(range.start + KERNEL_OFFSET, 1 << (MAX_ORDER + 11));
+        let end = range.end + KERNEL_OFFSET;
+        self.add_frame(start, end);
     }
 
-    /// 分配——按指定阶 `order` 返回一个空闲物理页块的首地址，若没有足够大
-    /// 的空闲块则返回 `None`。
+    /// 分配——按指定阶 `order` 返回一个空闲页块的首地址（高半区虚拟地址），若没有
+    /// 足够大的空闲块则返回 `None`。
     ///
     /// 若高阶级存在空闲块，会逐级对半拆分，把剩余的一半挂回低阶链表。
     pub fn alloc(&mut self, order: usize) -> Option<usize> {
@@ -74,8 +84,8 @@ impl<const MAX_ORDER: usize> BuddyAllocator<MAX_ORDER> {
         None
     }
 
-    /// 归还——把从 `start` 开始、阶为 `order` 的块释放回分配器，并尝试与
-    /// 相邻的 buddy 块向上合并成更大的块。
+    /// 归还——把从 `start`（高半区虚拟地址）开始、阶为 `order` 的块释放回分配器，
+    /// 并尝试与相邻的 buddy 块向上合并成更大的块。
     pub fn dealloc(&mut self, start: usize, order: usize) {
         let mut current_ptr = start;
         let mut current_order = order;

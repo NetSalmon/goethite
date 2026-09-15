@@ -8,10 +8,7 @@ use crate::mm::{address_space::ASpaceError, object::AllocError};
 
 #[panic_handler]
 fn panic_handler(info: &PanicInfo<'_>) -> ! {
-    eprintln!(
-        "kernel panic: {}",
-        info.message().as_str().unwrap_or_default()
-    );
+    eprintln!("kernel panic: {}", info);
     let _ = goethite_riscv64::sbi::srst::system_reset(ResetType::SHUTDOWN, ResetReason::NONE);
 
     loop {

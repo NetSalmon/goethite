@@ -1,4 +1,4 @@
-mod schedule;
+pub mod schedule;
 pub mod vma;
 
 use alloc::{rc::Weak, sync::Arc, vec::Vec};
@@ -6,6 +6,7 @@ use alloc::{rc::Weak, sync::Arc, vec::Vec};
 use goethite_config::MAX_CPU;
 use goethite_id_alloc::{Id, IdAlloc};
 use goethite_macros::lazy;
+use goethite_riscv64::registers::Registers;
 use goethite_sync::PerCpu;
 
 use crate::{fs::FileDesc, proc::vma::MemorySet};
@@ -23,7 +24,7 @@ pub struct Context {
     pub satp: u64,
 
     /// 32 个通用寄存器的值（`x0..x31`）。
-    pub registers: [u64; 32],
+    pub registers: Registers,
 }
 
 /// 一个内核线程（task）：持有可恢复的 [`Context`]，既是调度的最小单位。

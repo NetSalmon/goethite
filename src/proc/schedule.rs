@@ -1,11 +1,15 @@
 #![allow(unused)]
 
 use alloc::collections::{BTreeMap, VecDeque};
-
+use goethite_macros::lazy;
 use crate::proc::{Task, TaskId, TaskStatus};
 
+
+#[lazy(spin)]
+pub static SCHEDULER: Scheduler = Scheduler::new();
+
 pub struct Scheduler {
-    tasks: BTreeMap<TaskId, Task>,
+    pub tasks: BTreeMap<TaskId, Task>,
     runnable: VecDeque<TaskId>,
 }
 

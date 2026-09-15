@@ -1,9 +1,14 @@
 //! 从伙伴系统分配、用类型状态（typestate）保护的内存对象。
 //!
-//! [`PageObject<T, S>`] 从 [`FRAME_ALLOCATOR`] 分配一块足以容纳 `T` 的物理页，
+//! [`PageObject<T, S>`] 从 [`FRAME_ALLOCATOR`] 分配一块足以容纳 `T` 的页块，
 //! 并把「是否已初始化」编码在类型参数 `S` 上：分配出来的是
 //! [`PageObject<T, Uninit>`]，必须调用 [`init`](PageObject::init) 转成
 //! [`PageObject<T, Init>`] 之后才能安全访问。
+//!
+//! 分配得到的是伙伴系统给出的**高半区虚拟地址**（见
+//! [`BuddyAllocator`](crate::mm::buddy_system::BuddyAllocator) 的地址语义），
+//! 因此 [`get`](PageObject::get) / `Deref` 解引用时无需再做转换；归还时把同一
+//! 地址传回 [`FRAME_ALLOCATOR`] 即可。
 //!
 //! # 安全性
 //!

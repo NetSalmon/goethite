@@ -12,8 +12,8 @@ pub mod values;
 
 #[repr(C)]
 #[allow(unused)]
-#[derive(Debug)]
-pub struct Context {
+#[derive(Debug, Clone)]
+pub struct Registers {
     _zero: u64,
     pub ra: u64,
     pub sp: u64,
@@ -48,4 +48,4 @@ pub struct Context {
     pub t6: u64,
 }
 
-const _: () = assert!(size_of::<Context>() as u64 == 256);
+const _: () = assert!(size_of::<Registers>() as u64 == 256);
