@@ -5,8 +5,8 @@ use goethite_riscv64::{
     trap::{Exception, Trap},
 };
 use goethite_stdio::println;
-use crate::proc::CURRENT_TASK;
-use crate::proc::schedule::SCHEDULER;
+
+use crate::proc::{CURRENT_TASK, schedule::SCHEDULER};
 
 pub enum Todo {
     Return { value: u64, skip: u64 },
@@ -20,7 +20,6 @@ pub fn trap_handler(sepc: u64, scause: i64, stval: u64, stvec: u64, sstatus: u64
     let is_user_trap = stvec == entry::__user_trap_entry as *const () as u64;
 
     let context = unsafe { &mut *(sp as *mut Registers).offset(-1) };
-
 
     let todo = match Trap::from(scause) {
         Trap::Exception(ept) => match ept {
@@ -49,15 +48,10 @@ pub fn trap_handler(sepc: u64, scause: i64, stval: u64, stvec: u64, sstatus: u64
             context.a0 = value;
             sepc + skip * 4
         }
-        Todo::NoReturn { skip } => {
-            sepc + skip * 4
-        }
-        Todo::Yield => {
-            sepc
-        }
+        Todo::NoReturn { skip } => sepc + skip * 4,
+        Todo::Yield => sepc,
         Todo::Discard => sepc,
     });
-
 
     if is_user_trap {
         let current = CURRENT_TASK.current();
@@ -68,7 +62,6 @@ pub fn trap_handler(sepc: u64, scause: i64, stval: u64, stvec: u64, sstatus: u64
             if let Some(current_task) = SCHEDULER.lock().tasks.get_mut(&tid) {
                 current_task.context.registers = clone_context;
                 current_task.context.sepc = Sepc::read();
-
             }
         }
     }

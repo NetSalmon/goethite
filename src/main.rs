@@ -31,10 +31,15 @@ extern crate alloc;
 use core::arch::naked_asm;
 
 use goethite_macros::critical_section;
-use goethite_riscv64::{addr::{PhysicalAddr, VirtualAddr}, breakpoint, registers::csr::Stvec};
+use goethite_riscv64::{
+    addr::{PhysicalAddr, VirtualAddr},
+    breakpoint,
+    registers::csr::Stvec,
+};
 use trap::entry::__kernel_trap_entry;
 
-const KERNEL_STACK_SIZE: usize = 0x1000 * 16;
+/// Kernel Stack Size limit 16KiB
+pub const KERNEL_STACK_SIZE: usize = 0x1000 * 16;
 
 pub static mut FDT_ADDR: VirtualAddr = VirtualAddr::new();
 
