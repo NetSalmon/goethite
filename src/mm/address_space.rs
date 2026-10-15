@@ -9,6 +9,7 @@
 use alloc::collections::BTreeMap;
 use core::{arch::asm, fmt::Debug};
 
+use crate::proc::TaskGroupId;
 use goethite_macros::lazy;
 use goethite_riscv64::{
     addr::{PhysicalAddr, VirtualAddr},
@@ -18,12 +19,9 @@ use goethite_riscv64::{
     },
 };
 
-use crate::{
-    mm::{
-        object::{AllocError, Init, PageObject},
-        page_table::{PageTable, PageTableEntry, PageTableEntryFlags},
-    },
-    proc::TaskGroupId,
+use crate::mm::{
+    object::{AllocError, Init, PageObject},
+    page_table::{PageTable, PageTableEntry, PageTableEntryFlags},
 };
 
 /// 一个内存地址空间：根页表 + 子页表集合。

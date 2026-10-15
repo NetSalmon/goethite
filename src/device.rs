@@ -5,13 +5,26 @@
 //! - [`DeviceManager`]：设备管理器，负责申请 / 回收主设备号、注册设备、
 //!   分配两级设备 id（major / minor）并建立名字索引；
 //! - [`Major`] / [`preset`] / [`PRESET_MAJORS`]：主设备号的申请方式与内核预设值；
-//! - [`Resource`]：设备在系统总线上的地址资源窗口（设备树 `reg` 区间）；
+//! - [`Resource`]：设备在系统总线上的地址资源窗口（设备树 `reg` 区间），
+//!   并提供易失的 MMIO 读写；[`DeviceInfo`] 在此之上附加中断号；
+//! - [`mmio_regs`]：按寄存器偏移生成 MMIO 访问方法的宏；
 //! - [`FileType`] / [`Mode`]：UNIX `st_mode` 的文件类型与权限位（供文件系统复用）；
 //! - [`desc`]：从设备树（FDT）解析设备描述并建立索引；
-//! - [`driver`]：设备驱动注册表与设备-驱动双向匹配。
+//! - [`driver`]：设备驱动注册表与设备-驱动双向匹配；
+//! - 具体驱动：`ns16550a`（UART）、`virtio_mmio`（传输层）、`virtio_blk`、
+//!   `virtio_rng`、`fw_cfg`（QEMU firmware config）、`ramfb`（QEMU 显示）；
+//! - 平台辅助：`plic`（外部中断控制器）、`reboot`（平台复位）。
 
 pub mod desc;
 pub mod driver;
+pub mod fw_cfg;
+pub mod ns16550a;
+pub mod plic;
+pub mod ramfb;
+pub mod reboot;
+pub mod virtio_blk;
+pub mod virtio_mmio;
+pub mod virtio_rng;
 
 use alloc::{
     collections::{BTreeMap, BTreeSet},
@@ -26,6 +39,7 @@ use driver::Driver;
 use goethite_config::DEVICE_ID_MINOR_BITS;
 use goethite_id_alloc::IdAlloc;
 use goethite_macros::{bits, lazy, numeric};
+use goethite_riscv64::addr::{PhysicalAddr, VirtualAddr};
 
 /// 设备操作可能出现的错误。
 #[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
@@ -45,6 +59,12 @@ pub enum DeviceError {
     /// 指定的静态主设备号已被申请。
     #[error("major device number already in use")]
     MajorInUse,
+    /// 设备请求执行失败（如 virtio-blk 请求返回错误状态）。
+    #[error("device request failed")]
+    Io,
+    /// 设备尚未就绪（握手、特性协商或队列配置失败）。
+    #[error("device not ready")]
+    NotReady,
 }
 
 /// 设备操作的结果：
@@ -151,7 +171,11 @@ pub struct DeviceNode {
 }
 
 /// 设备在系统总线上的一个地址资源窗口（对应设备树的 `reg` 区间）。
-#[derive(Debug)]
+///
+/// `start` 是设备树给出的**物理**地址；内核在 [`init_page_table`](crate::init::init_page_table)
+/// 中把该窗口线性映射到高半区（`虚拟地址 = 物理地址 + KERNEL_OFFSET`），
+/// 因此 [`read`](Self::read) / [`write`](Self::write) 访问前会做物理→虚拟转换。
+#[derive(Debug, Clone, Copy)]
 pub struct Resource {
     /// 窗口的起始物理地址 / 偏移。
     pub start: usize,
@@ -166,8 +190,42 @@ impl Resource {
     }
 
     /// 构造一个地址资源窗口。
-    pub fn new(start: usize, size: usize) -> Self {
+    pub const fn new(start: usize, size: usize) -> Self {
         Self { start, size }
+    }
+
+    /// 窗口起始物理地址对应的内核虚拟地址。
+    #[inline]
+    pub fn as_vaddr(&self) -> VirtualAddr {
+        PhysicalAddr::from(self.start).as_vaddr()
+    }
+
+    /// 从 `start + offset` 处读取一个 `T`（易失读）。
+    ///
+    /// # Safety
+    ///
+    /// 调用方须保证 `offset..offset + size_of::<T>()` 落在合法 MMIO 窗口内，
+    /// 且 `T` 是可从 MMIO 读取的普通类型。
+    #[inline]
+    pub fn read<T>(&self, offset: usize) -> T {
+        let ptr = PhysicalAddr::from(self.start + offset)
+            .as_vaddr()
+            .as_ptr::<T>();
+        unsafe { ptr.read_volatile() }
+    }
+
+    /// 向 `start + offset` 处写入一个 `T`（易失写）。
+    ///
+    /// # Safety
+    ///
+    /// 同 [`read`](Self::read)，`offset..offset + size_of::<T>()` 必须落在合法
+    /// MMIO 窗口内。
+    #[inline]
+    pub fn write<T>(&self, offset: usize, value: T) {
+        let ptr = PhysicalAddr::from(self.start + offset)
+            .as_vaddr()
+            .as_mut_ptr::<T>();
+        unsafe { ptr.write_volatile(value) }
     }
 }
 
@@ -178,6 +236,97 @@ impl From<Range<usize>> for Resource {
 
         Resource { start, size }
     }
+}
+
+/// 一台设备的硬件描述：一段 MMIO 资源窗口与可选的中断号。
+///
+/// 从 [`DeviceDesc`] 解析而来，供驱动通过 `mmio_regs!` 生成的寄存器访问方法
+/// 使用（访问 `device.mmio`）。
+#[derive(Debug, Clone, Copy)]
+pub struct DeviceInfo {
+    /// 设备寄存器所在的 MMIO 窗口。
+    pub mmio: Resource,
+    /// 设备使用的中断号（无中断设备为 `None`）。
+    pub irq: Option<usize>,
+}
+
+impl DeviceInfo {
+    /// 构造一份设备硬件描述。
+    pub const fn new(mmio: Resource, irq: Option<usize>) -> Self {
+        Self { mmio, irq }
+    }
+
+    /// 从设备树描述中取出首个 MMIO 窗口与首个中断号。
+    ///
+    /// 设备描述不含 `reg` 时返回 `None`。
+    pub fn from_desc(desc: &DeviceDesc) -> Option<Self> {
+        let mmio = *desc.resources.first()?;
+        Some(Self::new(mmio, desc.irq.first().copied()))
+    }
+}
+
+/// 把内核虚拟地址转换为设备可用的物理地址。
+///
+/// 内核堆 / 栈 / 镜像位于高半区（`>= KERNEL_OFFSET`），减去偏移即为物理地址；
+/// 启动早期（尚未切换页表）的低地址本身即物理地址，原样返回。用于把
+/// virtio 描述符、fw_cfg DMA 缓冲等交给设备直接访问。
+#[inline]
+pub fn virt_to_phys(addr: usize) -> usize {
+    if addr >= goethite_config::KERNEL_OFFSET {
+        *VirtualAddr::from(addr).as_paddr()
+    } else {
+        addr
+    }
+}
+
+/// 按寄存器偏移为设备生成易失 MMIO 访问方法。
+///
+/// 语法：`mmio_regs!(Device: [reg[: Ty] => offset, ...])`。为每个 `reg` 生成
+/// `reg()` / `write_reg(val)`：写成 `reg: Ty` 时以固定宽度 `Ty` 访问，省略时
+/// 生成泛型方法由调用处推断宽度。同时在模块内生成常量 `REG_OFFSET`。设备须有
+/// 一个 `device: DeviceInfo` 字段。
+#[macro_export]
+macro_rules! mmio_regs {
+    ($device:ident: [ $( $reg:ident $( : $t:ty )? => $offset:expr ),+ $(,)? ]) => {
+        paste::paste! {
+            $( #[allow(dead_code)] const [<$reg:upper _OFFSET>]: usize = $offset as usize; )+
+
+            #[allow(dead_code)]
+            impl $device {
+                $(
+                    $crate::mmio_regs!(@helper &self, $reg, $($t)?, $offset);
+                )+
+            }
+        }
+    };
+
+    (@helper &self, $reg:ident, $t:ty, $offset:expr) => {
+        paste::paste! {
+            #[inline]
+            pub fn [< $reg:snake >](&self) -> $t {
+                self.device.mmio.read::<$t>($offset)
+            }
+
+            #[inline]
+            pub fn [< write_ $reg:snake >](&self, val: $t) {
+                self.device.mmio.write::<$t>($offset, val);
+            }
+        }
+    };
+
+    (@helper &self, $reg:ident, , $offset:expr) => {
+        paste::paste! {
+            #[inline]
+            pub fn [< $reg:snake >]<T>(&self) -> T {
+                self.device.mmio.read::<T>($offset)
+            }
+
+            #[inline]
+            pub fn [< write_ $reg:snake >]<T>(&self, val: T) {
+                self.device.mmio.write::<T>($offset, val);
+            }
+        }
+    };
 }
 
 /// 内核预设的主设备号。

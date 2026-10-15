@@ -11,30 +11,30 @@ virtio 驱动、ELF 加载、进程调度（fork / execve）等，当前覆盖�
 
 ### 顶层：`src/`（内核本体，bin crate `goethite`）
 
-| 模块 | 职责 |
-| --- | --- |
-| `main.rs` | 内核入口 `__kernel_entry` / `main`，全局错误类型 `KernelError`，panic 处理 |
-| `boot.rs` | 启动阶段：低地址建立 Sv39 页表、恒等映射并跳转到高地址内核 |
-| `arch.rs` | 架构相关辅助（占位，具体见 `goethite-riscv64`） |
-| `mm/` | 内存管理：页表、伙伴系统、SLUB 堆分配器、地址空间、物理块 (`Region`) |
+| 模块      | 职责                                                                        |
+|-----------|-----------------------------------------------------------------------------|
+| `main.rs` | 内核入口 `__kernel_entry` / `main`，全局错误类型 `KernelError`，panic 处理  |
+| `boot.rs` | 启动阶段：低地址建立 Sv39 页表、恒等映射并跳转到高地址内核                  |
+| `arch.rs` | 架构相关辅助（占位，具体见 `goethite-riscv64`）                             |
+| `mm/`     | 内存管理：页表、伙伴系统、SLUB 堆分配器、地址空间、物理块 (`Region`)        |
 | `device/` | 设备子系统：设备树解析 (`desc`)、驱动注册表 (`driver`)、设备抽象 (`Device`) |
-| `proc/` | 进程 / 线程：id 分配、上下文、虚拟内存区域 (`vma`) |
+| `proc/`   | 进程 / 线程：id 分配、上下文、虚拟内存区域 (`vma`)、ELF 加载 (`exec`)       |
 
 ### 外围 crate：`crates/`
 
-| crate | 职责 |
-| --- | --- |
-| `goethite-riscv64` | RISC-V 硬件抽象：地址类型、CSR / 寄存器、SBI 封装 |
-| `goethite-config` | 编译期常量汇总（CPU / 文件系统 / 内存布局 / 链接符号 / 任务 / 版本） |
-| `goethite-sync` | 同步原语：`LazyLock`、`OnceLock`、`PerCpu`、`RwLock`、`SpinLock` |
-| `goethite-macros` | 通用宏与编译期常量辅助（`bits` / `numeric` / `lazy` / `load_symbol` 等） |
-| `goethite-macros-impl` | `goethite-macros` 的过程宏实现（`proc-macro = true`，不导出普通项） |
-| `goethite-id-alloc` | 两级 ID 分配器（类 `dev_t` 的 major/minor 模型） |
-| `goethite-intrusive-list` | 侵入式单链表（伙伴系统 / SLUB 空闲链表复用） |
-| `goethite-stdio` | 内核控制台输出与 `print` 系列宏（经 SBI 调试控制台） |
-| `goethite-elf` | ELF64 解析（文件头 / 程序头，供用户程序加载） |
-| `goethite-stack` | 进程栈映像（argv / env / auxv）的零拷贝解析与序列化 |
-| `goethite-syscall` | 系统调用接口雏形（`Errno` / `Syscall` 形状） |
+| crate                     | 职责                                                                     |
+|---------------------------|--------------------------------------------------------------------------|
+| `goethite-riscv64`        | RISC-V 硬件抽象：地址类型、CSR / 寄存器、SBI 封装                        |
+| `goethite-config`         | 编译期常量汇总（CPU / 文件系统 / 内存布局 / 链接符号 / 任务 / 版本）     |
+| `goethite-sync`           | 同步原语：`LazyLock`、`OnceLock`、`PerCpu`、`RwLock`、`SpinLock`         |
+| `goethite-macros`         | 通用宏与编译期常量辅助（`bits` / `numeric` / `lazy` / `load_symbol` 等） |
+| `goethite-macros-impl`    | `goethite-macros` 的过程宏实现（`proc-macro = true`，不导出普通项）      |
+| `goethite-id-alloc`       | 两级 ID 分配器（类 `dev_t` 的 major/minor 模型）                         |
+| `goethite-intrusive-list` | 侵入式单链表（伙伴系统 / SLUB 空闲链表复用）                             |
+| `goethite-stdio`          | 内核控制台输出与 `print` 系列宏（经 SBI 调试控制台）                     |
+| `goethite-elf`            | ELF64 解析（文件头 / 程序头，供用户程序加载）                            |
+| `goethite-stack`          | 进程栈映像（argv / env / auxv）的零拷贝解析与序列化                      |
+| `goethite-abi`        | 系统调用接口雏形（`PosixErrno` / `Syscall` 形状）                             |
 
 ### 依赖关系（上游 → 下游）
 
@@ -60,8 +60,11 @@ virtio 驱动、ELF 加载、进程调度（fork / execve）等，当前覆盖�
 
 ## 构建
 
-目标为 `riscv64gc-unknown-none-elf`（见 `.cargo/config.toml`），链接脚本
-`src/link-scripts/linker.ld` 通过 rustflags 注入：
+目标为 `riscv64gc-unknown-none-elf`（见 `.cargo/config.toml`）。链接脚本按包注入：
+内核由根 `build.rs` 指定 `src/link-scripts/linker.ld`（`ENTRY(_boot)`），
+用户态由 `goethite-userland/build.rs` 指定
+`goethite-userland/src/link-scripts/userland.ld`（`ENTRY(_start)`），
+避免全局 rustflags 把内核脚本误用于用户程序：
 
 ```bash
 rustup target add riscv64gc-unknown-none-elf

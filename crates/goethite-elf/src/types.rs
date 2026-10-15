@@ -12,6 +12,7 @@
 pub mod program_header;
 
 use goethite_macros::{array_struct, numeric};
+pub use program_header::{ProgramFlags, ProgramHeader, ProgramHeaderIterator, ProgramType};
 
 /// ELF 加载错误。
 #[derive(Debug, Clone, thiserror::Error)]

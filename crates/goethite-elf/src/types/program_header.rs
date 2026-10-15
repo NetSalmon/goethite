@@ -15,7 +15,7 @@ use core::{
 
 use goethite_macros::{bits, numeric};
 
-use crate::types::ElfHeader;
+use crate::types::{ElfError, ElfHeader};
 
 numeric! {
     pub enum ProgramType : u32 {
@@ -72,6 +72,24 @@ pub struct ProgramHeader {
     pub mem_size: u64,
     /// 段对齐要求（`p_align`）。
     pub align: u64,
+}
+
+impl TryFrom<&[u8]> for ProgramHeader {
+    type Error = ElfError;
+
+    /// 把一个程序头表项按字节直读为结构体。
+    ///
+    /// # Errors
+    ///
+    /// 缓冲区长度不足 `size_of::<ProgramHeader>()` 时返回 [`ElfError::NotElf`]。
+    fn try_from(bytes: &[u8]) -> Result<Self, Self::Error> {
+        if bytes.len() < size_of::<Self>() {
+            return Err(ElfError::NotElf);
+        }
+        // SAFETY: 已校验缓冲区长度不小于 ProgramHeader；`&[u8]` 只保证 1 字节对齐，
+        // 因此用 read_unaligned 读取。
+        Ok(unsafe { (bytes.as_ptr() as *const Self).read_unaligned() })
+    }
 }
 
 impl Display for ProgramFlags {

@@ -10,7 +10,6 @@ bench = false
 doctest = false
 
 [features]
-default = ["alloc"]
 alloc = []
 
 [dependencies]

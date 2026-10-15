@@ -24,6 +24,7 @@ pub mod fs;
 pub mod init;
 pub mod mm;
 pub mod proc;
+pub mod syscall;
 pub mod trap;
 
 extern crate alloc;
@@ -67,6 +68,8 @@ pub fn main(ptr: *mut u32) {
         let memory = init::init_buddy_system().unwrap();
         init::init_page_table(&memory).unwrap();
         init::init_devices();
+        init::init_interrupts();
+        init::init_filesystem();
     }
 
     Stvec::write(__kernel_trap_entry as *const () as u64);

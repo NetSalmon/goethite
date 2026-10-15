@@ -2,11 +2,12 @@
 
 use alloc::collections::{BTreeMap, VecDeque};
 
+use crate::proc::TaskId;
 use goethite_macros::lazy;
 use goethite_riscv64::registers::csr::{Sscratch, Stvec};
 
 use crate::{
-    proc::{CURRENT_TASK, Task, TaskId, TaskStatus},
+    proc::{CURRENT_TASK, Task, TaskStatus},
     trap::entry::__user_trap_entry,
 };
 
@@ -121,4 +122,8 @@ impl Default for Scheduler {
     fn default() -> Self {
         Self::new()
     }
+}
+
+pub fn schedule() {
+    
 }

@@ -13,14 +13,26 @@ name = "goethite"
 version = "0.1.0"
 dependencies = [
  "fdt",
+ "goethite-abi",
  "goethite-config",
+ "goethite-elf",
+ "goethite-fs",
  "goethite-id-alloc",
  "goethite-intrusive-list",
  "goethite-macros",
+ "goethite-minix",
  "goethite-riscv64",
  "goethite-stdio",
  "goethite-sync",
+ "paste",
  "thiserror",
+]
+
+[[package]]
+name = "goethite-abi"
+version = "0.1.0"
+dependencies = [
+ "goethite-macros",
 ]
 
 [[package]]
@@ -125,7 +137,17 @@ dependencies = [
 name = "goethite-syscall"
 version = "0.1.0"
 dependencies = [
- "goethite-macros",
+ "goethite-abi",
+ "goethite-riscv64",
+]
+
+[[package]]
+name = "goethite-userland"
+version = "0.1.0"
+dependencies = [
+ "goethite-abi",
+ "goethite-stack",
+ "goethite-syscall",
 ]
 
 [[package]]

@@ -48,4 +48,12 @@ pub struct Registers {
     pub t6: u64,
 }
 
+impl Registers {
+    pub fn args(&self) -> [u64; 8] {
+        [
+            self.a0, self.a1, self.a2, self.a3, self.a4, self.a5, self.a6, self.a7,
+        ]
+    }
+}
+
 const _: () = assert!(size_of::<Registers>() as u64 == 256);

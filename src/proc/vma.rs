@@ -20,6 +20,7 @@
 
 use alloc::vec::Vec;
 
+use crate::proc::TaskGroupId;
 use goethite_config::{BUDDY_MAX_ORDER, PAGE_SIZE, align};
 use goethite_riscv64::addr::VirtualAddr;
 
@@ -31,7 +32,7 @@ use crate::{
         page_table::PageTableEntryFlags,
         region::Region,
     },
-    proc::{TaskGroupId, alloc_tgid, free_tgid},
+    proc::{alloc_tgid, free_tgid},
 };
 
 /// 一个虚拟内存区域的类型，决定其后备帧来源与增长行为。

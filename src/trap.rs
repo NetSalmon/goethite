@@ -2,11 +2,14 @@ pub mod entry;
 
 use goethite_riscv64::{
     registers::{Registers, csr::Sepc},
-    trap::{Exception, Trap},
+    trap::{Exception, Interrupt, Trap},
 };
 use goethite_stdio::println;
 
-use crate::proc::{CURRENT_TASK, schedule::SCHEDULER};
+use crate::{
+    device::plic,
+    proc::{CURRENT_TASK, schedule::SCHEDULER},
+};
 
 pub enum Todo {
     Return { value: u64, skip: u64 },
@@ -38,12 +41,17 @@ pub fn trap_handler(sepc: u64, scause: i64, stval: u64, stvec: u64, sstatus: u64
             }
             _ => Todo::Discard,
         },
-        Trap::Interrupt(int) => match int {
-            _ => Todo::Discard,
-        },
+        Trap::Interrupt(int) => {
+            // S 模式外部中断交由 PLIC 认领并分派给已登记的设备处理函数。
+            // 中断的 sepc 已指向被打断的指令，保持 `Todo::Discard` 即可原地返回。
+            if int == Interrupt::SUPERVISOR_EXTERNAL {
+                plic::handle_external_interrupt();
+            }
+            Todo::Discard
+        }
     };
 
-    Sepc::write(match todo {
+    let sepc = match todo {
         Todo::Return { value, skip } => {
             context.a0 = value;
             sepc + skip * 4
@@ -51,7 +59,9 @@ pub fn trap_handler(sepc: u64, scause: i64, stval: u64, stvec: u64, sstatus: u64
         Todo::NoReturn { skip } => sepc + skip * 4,
         Todo::Yield => sepc,
         Todo::Discard => sepc,
-    });
+    };
+
+    Sepc::write(sepc);
 
     if is_user_trap {
         let current = CURRENT_TASK.current();

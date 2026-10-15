@@ -109,9 +109,9 @@ impl DeviceId {
 
 /// 手工实现 [`Id`]：`bits!` 已提供 `Debug` / `Copy` / `Ord` 等前置能力。
 impl Id for DeviceId {
-    const BITS: u32 = usize::BITS;
-    const MAX: Self = Self(usize::MAX);
     const MIN: Self = Self(usize::MIN);
+    const MAX: Self = Self(usize::MAX);
+    const BITS: u32 = usize::BITS;
 
     fn next(&self) -> Option<Self> {
         self.0.checked_add(1).map(Self)

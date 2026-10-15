@@ -1,22 +1,70 @@
-use alloc::vec::Vec;
+use alloc::{string::String, sync::Arc, vec::Vec};
 use core::{cmp::max, ops::Range};
 
 use goethite_config::PAGE_SIZE;
 use goethite_macros::load_symbol;
 use goethite_riscv64::addr::PhysicalAddr;
+use goethite_stdio::{eprintln, println};
 
 use crate::{
     FDT_ADDR,
-    device::{desc::DEVICE_DESC_MANAGER, driver},
+    device::{
+        desc::DEVICE_DESC_MANAGER, driver, ns16550a::Ns16550aDriver, plic,
+        virtio_blk::VirtioBlkDriver, virtio_rng::VirtioRngDriver,
+    },
     error::{KernelError, KernelResult},
     mm::{address_space::AS_MANAGER, alloc::FRAME_ALLOCATOR, page_table::PageTableEntryFlags},
 };
 
-/// 探测设备树中的全部设备：匹配驱动、probe 并注册进设备管理器。
+/// 探测设备树中的全部设备：注册内置驱动、匹配、probe 并登记进设备管理器。
 ///
 /// 返回成功登记的设备数。需在 [`init_page_table`] 完成设备 MMIO 映射之后调用。
 pub fn init_devices() -> usize {
+    register_builtin_drivers();
     driver::probe_all()
+}
+
+/// 注册内核内置的块 / 字符设备驱动。
+///
+/// 各驱动在 [`driver::register`] 时申请主设备号（UART 用预设 TTY、块设备用
+/// 预设 BLOCK、熵源用预设 MISC）。
+fn register_builtin_drivers() {
+    let _ = driver::register(Arc::new(Ns16550aDriver));
+    let _ = driver::register(Arc::new(VirtioBlkDriver));
+    let _ = driver::register(Arc::new(VirtioRngDriver));
+}
+
+/// 初始化中断控制器（PLIC）。
+///
+/// 需在 [`init_devices`] 之后调用：此时设备树已解析、控制器的 MMIO 窗口已由
+/// [`init_page_table`] 映射。未探测到 PLIC 时只记录错误、不 panic——与
+/// [`init_filesystem`] 一致，内核仍可在没有外部中断的情况下运行。
+pub fn init_interrupts() {
+    match plic::init() {
+        Ok(info) => println!(
+            "plic: {} interrupt sources at {:#x}, supervisor context {}",
+            info.sources, info.base, info.context
+        ),
+        Err(err) => eprintln!("failed to initialize plic: {err}"),
+    }
+}
+
+/// 挂载根文件系统（MINIX v1）。
+///
+/// 需在 [`init_devices`] 之后调用。没有可挂载的块设备时只记录错误、不 panic，
+/// 内核仍可继续运行（只是没有根文件系统）。
+pub fn init_filesystem() {
+    match crate::fs::init() {
+        Ok(()) => {
+            println!("mounted minix v1 root filesystem");
+            // 冒烟测试：经 VFS 读回磁盘上的 /hello，验证块设备 → MINIX → VFS 全链路。
+            match crate::fs::read_file("/hello") {
+                Ok(data) => println!("/hello: {}", String::from_utf8_lossy(&data).trim_end()),
+                Err(err) => eprintln!("read /hello failed: {err}"),
+            }
+        }
+        Err(err) => eprintln!("failed to mount root filesystem: {err}"),
+    }
 }
 
 /// 建立内核地址空间并激活。

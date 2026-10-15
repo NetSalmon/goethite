@@ -2,10 +2,18 @@
   <dictionary name="project">
     <words>
       <w>addi</w>
+      <w>auxv</w>
       <w>csrr</w>
       <w>csrrw</w>
       <w>csrw</w>
+      <w>execve</w>
+      <w>minix</w>
+      <w>mmio</w>
+      <w>paddr</w>
+      <w>ramfb</w>
       <w>riscv</w>
+      <w>rustflags</w>
+      <w>satp</w>
       <w>scause</w>
       <w>sepc</w>
       <w>sret</w>
@@ -14,6 +22,9 @@
       <w>stval</w>
       <w>stvec</w>
       <w>tgid</w>
+      <w>uart</w>
+      <w>virt</w>
+      <w>virtio</w>
     </words>
   </dictionary>
 </component>

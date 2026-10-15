@@ -2,7 +2,6 @@
 name = "goethite-syscall"
 version = "0.1.0"
 edition = "2024"
-license = "GPL-3.0-or-later"
 
 [lib]
 test = false
@@ -10,4 +9,5 @@ bench = false
 doctest = false
 
 [dependencies]
-goethite-macros = { path = "../goethite-macros" }
+goethite-abi = { path = "../goethite-abi" }
+goethite-riscv64 = { path = "../goethite-riscv64" }

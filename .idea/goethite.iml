@@ -17,6 +17,8 @@
       <sourceFolder url="file://$MODULE_DIR$/crates/goethite-bitmap/src" isTestSource="false" />
       <sourceFolder url="file://$MODULE_DIR$/crates/goethite-fs/src" isTestSource="false" />
       <sourceFolder url="file://$MODULE_DIR$/crates/goethite-minix/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/crates/goethite-abi/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/goethite-userland/src" isTestSource="false" />
       <excludeFolder url="file://$MODULE_DIR$/target" />
     </content>
     <orderEntry type="inheritedJdk" />

@@ -1,3 +1,4 @@
+pub mod exec;
 pub mod schedule;
 pub mod vma;
 
@@ -176,14 +177,6 @@ impl TaskStatus {
     }
 }
 
-/// 线程 id（tid）：进程内每个线程唯一。
-#[derive(Id)]
-pub struct TaskId(pub usize);
-
-/// 线程组（进程）id（tgid）：同一进程的所有线程共享同一 tgid 与地址空间。
-#[derive(Id)]
-pub struct TaskGroupId(pub usize);
-
 /// 单个进程可容纳的最大线程数，即一个 tgid 块的大小 `2^TASK_ID_MINOR_BITS`。
 const TASK_ID_MINOR_BITS: usize = 5;
 
@@ -222,3 +215,11 @@ pub fn free_tid(tid: TaskId) {
 pub fn free_tgid(tgid: TaskGroupId) {
     TASK_ID_ALLOC.lock().dealloc_major(tgid).ok();
 }
+
+/// 线程 id（tid）：进程内每个线程唯一。
+#[derive(Id)]
+pub struct TaskId(pub usize);
+
+/// 线程组（进程）id（tgid）：同一进程的所有线程共享同一 tgid 与地址空间。
+#[derive(Id)]
+pub struct TaskGroupId(pub usize);

@@ -1,0 +1,20 @@
+[package]
+name = "goethite-userland"
+version = "0.1.0"
+edition = "2024"
+
+[lib]
+test = false
+bench = false
+doctest = false
+
+[dependencies]
+goethite-abi = { path = "../crates/goethite-abi" }
+goethite-syscall = { path = "../crates/goethite-syscall" }
+goethite-stack = { path = "../crates/goethite-stack" }
+
+[[bin]]
+name = "hello"
+test = false
+bench = false
+doctest = false

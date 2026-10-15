@@ -14,7 +14,12 @@ goethite-config = { path = "crates/goethite-config" }
 goethite-id-alloc = { path = "crates/goethite-id-alloc" }
 goethite-intrusive-list = { path = "crates/goethite-intrusive-list" }
 goethite-stdio = { path = "crates/goethite-stdio" }
+goethite-abi = { path = "crates/goethite-abi" }
+goethite-fs = { path = "crates/goethite-fs" }
+goethite-minix = { path = "crates/goethite-minix" }
+goethite-elf = { path = "crates/goethite-elf" }
 fdt = "0.2.0-alpha2"
+paste = "1.0.15"
 thiserror = { version = "2.0.20", default-features = false }
 
 [[bin]]
@@ -25,10 +30,12 @@ bench = false
 
 [workspace]
 members = [
-    "crates/*"
+    "crates/*",
+    "goethite-userland"
 ]
 
 [profile.dev]
+opt-level = 3
 lto = "fat"
 codegen-units = 1
 
