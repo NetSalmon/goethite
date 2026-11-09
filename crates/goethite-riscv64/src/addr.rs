@@ -163,3 +163,42 @@ impl From<VirtualAddr> for PhysicalAddr {
         PhysicalAddr::from(vaddr.0 - goethite_config::KERNEL_OFFSET)
     }
 }
+
+pub enum VPN {
+    VPN0,
+    VPN1,
+    VPN2,
+}
+
+pub trait GetPPN<T> {
+    fn get_ppn(&self, cmd: PPN) -> T;
+}
+
+impl GetPPN<usize> for PhysicalAddr {
+    fn get_ppn(&self, cmd: PPN) -> usize {
+        match cmd {
+            PPN::PPN0 => self.ppn0(),
+            PPN::PPN1 => self.ppn1(),
+            PPN::PPN2 => self.ppn2(),
+        }
+    }
+}
+pub enum PPN {
+    PPN0,
+    PPN1,
+    PPN2,
+}
+
+pub trait GetVPN<T> {
+    fn get_vpn(&self, cmd: VPN) -> T;
+}
+
+impl GetVPN<usize> for VirtualAddr {
+    fn get_vpn(&self, cmd: VPN) -> usize {
+        match cmd {
+            VPN::VPN0 => self.vpn0(),
+            VPN::VPN1 => self.vpn1(),
+            VPN::VPN2 => self.vpn2(),
+        }
+    }
+}

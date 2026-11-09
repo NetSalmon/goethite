@@ -78,3 +78,12 @@ pub const USER_STACK_LOWER_BOUND: usize = USER_STACK_TOP - USER_STACK_SIZE;
 
 /// 单级页表的页表项数量（RISC-V Sv39 每级固定 512 项）。
 pub const PTE_NUMBER: usize = 512;
+
+pub const fn vpn2(addr: usize) -> usize {
+    const MASK: usize = ((1 << (38 - 30 + 1)) - 1) << 30;
+    (addr & MASK) >> 30
+}
+
+pub const KERNEL_PTE_START: usize = vpn2(KERNEL_OFFSET);
+
+pub const PAGE_TABLE_SIZE: usize = 512;

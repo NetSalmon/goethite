@@ -1,15 +1,11 @@
 #![allow(unused)]
 
 use alloc::collections::{BTreeMap, VecDeque};
-
-use crate::proc::TaskId;
+use core::arch::naked_asm;
 use goethite_macros::lazy;
 use goethite_riscv64::registers::csr::{Sscratch, Stvec};
 
-use crate::{
-    proc::{CURRENT_TASK, Task, TaskStatus},
-    trap::entry::__user_trap_entry,
-};
+use crate::{proc::{CURRENT_TASK, Task, TaskId, TaskStatus}, trap::entry::__user_trap_entry, KERNEL_STACK_SIZE};
 
 #[lazy(spin)]
 pub static SCHEDULER: Scheduler = Scheduler::new();
@@ -118,12 +114,12 @@ impl Scheduler {
     }
 }
 
+#[unsafe(link_section = ".bss.__scheduler_stack")]
+#[unsafe(export_name = "__scheduler_stack")]
+pub static SCHEDULER_STACK: [u8; KERNEL_STACK_SIZE] = [0; KERNEL_STACK_SIZE];
+
 impl Default for Scheduler {
     fn default() -> Self {
         Self::new()
     }
-}
-
-pub fn schedule() {
-    
 }

@@ -5,8 +5,9 @@
 //!   PPN0/PPN1/PPN2（三者合起来是 44 位物理页号 PPN）。
 //! - [`PageTableEntryFlags`]：页表项的标志位视图（只含标志与权限位，不含页号）。
 //! - [`PageTable`]：512 个页表项组成的、按页（4 KiB）对齐的 Sv39 页表。
+use goethite_config::PAGE_TABLE_SIZE;
 use goethite_macros::bits;
-use goethite_riscv64::addr::PhysicalAddr;
+use goethite_riscv64::addr::{GetPPN, GetVPN, PhysicalAddr, PPN};
 
 bits! {
     pub type PageTableEntry: u64 {
@@ -25,6 +26,22 @@ bits! {
         ppn2: 28 => 53,
         ppn: 10 => 53,
     }
+}
+
+impl GetPPN<u64> for PageTableEntry {
+    fn get_ppn(&self, cmd: PPN) -> u64 {
+        match cmd {
+            PPN::PPN0 => self.ppn0(),
+            PPN::PPN1 => self.ppn1(),
+            PPN::PPN2 => self.ppn2(),
+        }
+    }
+}
+
+pub enum PageTableLevel {
+    Level2,
+    Level1,
+    Level0,
 }
 
 bits! {
@@ -46,15 +63,23 @@ bits! {
 #[derive(Debug)]
 pub struct PageTable {
     /// 页表原始的 512 项条目。
-    pub(crate) entries: [PageTableEntry; 512],
+    pub(crate) entries: [PageTableEntry; PAGE_TABLE_SIZE],
 }
 
 impl PageTable {
     /// 构造一个全零的页表（所有项 `V=0`，不映射任何地址）。
     pub const fn new() -> PageTable {
         PageTable {
-            entries: [PageTableEntry::new(); 512],
+            entries: [PageTableEntry::new(); PAGE_TABLE_SIZE],
         }
+    }
+
+    pub fn get_valid(&self, index: usize) -> Option<&PageTableEntry> {
+        let pte = self.entries.get(index)?;
+        if !pte.validate() {
+            return None;
+        }
+        Some(pte)
     }
 
     /// 把 `entry` 写入第 `index` 项（`index` 通常是某一级的 VPN 分量）。

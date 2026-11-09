@@ -9,6 +9,7 @@ pub(crate) mod cpu;
 pub(crate) mod device;
 pub(crate) mod fs;
 pub(crate) mod memory;
+pub mod proc;
 pub(crate) mod symbols;
 pub(crate) mod task;
 pub(crate) mod uname;

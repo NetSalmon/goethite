@@ -9,7 +9,7 @@
 use alloc::collections::BTreeMap;
 use core::{arch::asm, fmt::Debug};
 
-use crate::proc::TaskGroupId;
+use goethite_config::{KERNEL_PTE_START, PAGE_TABLE_SIZE};
 use goethite_macros::lazy;
 use goethite_riscv64::{
     addr::{PhysicalAddr, VirtualAddr},
@@ -18,11 +18,15 @@ use goethite_riscv64::{
         values::{SatpMode, SatpValue},
     },
 };
-
-use crate::mm::{
-    object::{AllocError, Init, PageObject},
-    page_table::{PageTable, PageTableEntry, PageTableEntryFlags},
+use goethite_riscv64::addr::{GetVPN, VPN};
+use crate::{
+    mm::{
+        object::{AllocError, Init, PageObject},
+        page_table::{PageTable, PageTableEntry, PageTableEntryFlags},
+    },
+    proc::TaskGroupId,
 };
+use crate::mm::page_table::PageTableLevel;
 
 /// 一个内存地址空间：根页表 + 子页表集合。
 #[derive(Debug)]
@@ -164,7 +168,7 @@ impl AddressSpace {
         let pte0 = &mut pt0.entries[vpn0];
         *pte0 = PageTableEntry::new();
     }
-
+    
     /// 通过虚拟地址 `va` 获取对应的叶页表项（只读）。
     ///
     /// 沿 V2/V1/V0 逐级下行；仅当沿途中间页表项有效且对应页表存在时返回
@@ -172,18 +176,12 @@ impl AddressSpace {
     /// [`PageTableEntry::validate`] 判断是否已建立映射。
     pub fn pte(&self, va: VirtualAddr) -> Option<&PageTableEntry> {
         let pt1_key = {
-            let pte2 = self.root.entries.get(va.vpn2())?;
-            if !pte2.validate() {
-                return None;
-            }
+            let pte2 = self.root.get_valid(va.vpn2())?;
             pte2.ppn() as usize
         };
 
         let pt1 = self.children.get(&pt1_key)?;
-        let pte1 = pt1.entries.get(va.vpn1())?;
-        if !pte1.validate() {
-            return None;
-        }
+        let pte1 = pt1.get_valid(va.vpn1())?;
 
         let pt0 = self.children.get(&(pte1.ppn() as usize))?;
         pt0.entries.get(va.vpn0())
@@ -194,20 +192,16 @@ impl AddressSpace {
     /// 定位语义与 [`pte`](Self::pte) 相同；返回可变引用以便直接修改页表项的
     /// 标志或物理页号。若 `va` 未被映射，返回 `None`。
     pub fn pte_mut(&mut self, va: VirtualAddr) -> Option<&mut PageTableEntry> {
-        let pt1_key = {
-            let pte2 = self.root.entries.get(va.vpn2())?;
-            if !pte2.validate() {
-                return None;
-            }
+        // 通过VPN2获取Level1页表的索引
+        let level1_index = {
+            let pte2 = self.root.get_valid(va.vpn2())?;
             pte2.ppn() as usize
         };
 
+        // 通过VPN1获取Level0页表索引
         let pt0_key = {
-            let pt1 = self.children.get(&pt1_key)?;
-            let pte1 = pt1.entries.get(va.vpn1())?;
-            if !pte1.validate() {
-                return None;
-            }
+            let pt1 = self.children.get(&level1_index)?;
+            let pte1 = pt1.get_valid(va.vpn1())?;
             pte1.ppn() as usize
         };
 
@@ -229,6 +223,33 @@ impl AddressSpace {
         Satp::write(satp.into());
 
         unsafe { asm!("sfence.vma") }
+    }
+
+    pub fn try_from_kernel(kernel: &Self) -> Result<Self, AllocError> {
+        let mut aspace = Self::try_new()?;
+
+        for i in KERNEL_PTE_START..PAGE_TABLE_SIZE {
+            aspace.root.entries[i] = kernel.root.entries[i];
+        }
+
+        Ok(aspace)
+    }
+
+    pub fn from_kernel(kernel: &Self) -> Self {
+        let mut aspace = Self::new();
+
+        for i in KERNEL_PTE_START..PAGE_TABLE_SIZE {
+            aspace.root.entries[i] = kernel.root.entries[i];
+        }
+
+        aspace
+    }
+
+
+    pub fn copy_from_kernel(&mut self, other: &Self) {
+        for i in KERNEL_PTE_START..PAGE_TABLE_SIZE {
+            self.root.entries[i] = other.root.entries[i];
+        }
     }
 }
 
@@ -325,7 +346,7 @@ impl ASpaceManager {
         if self.user.contains_key(&tgid) {
             return Err(ASpaceError::AlreadyExists);
         }
-        let aspace = AddressSpace::try_new().map_err(ASpaceError::Alloc)?;
+        let aspace = AddressSpace::from_kernel(&self.kernel);
         self.user.insert(tgid, aspace);
         Ok(())
     }

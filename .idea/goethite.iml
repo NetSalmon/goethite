@@ -19,6 +19,8 @@
       <sourceFolder url="file://$MODULE_DIR$/crates/goethite-minix/src" isTestSource="false" />
       <sourceFolder url="file://$MODULE_DIR$/crates/goethite-abi/src" isTestSource="false" />
       <sourceFolder url="file://$MODULE_DIR$/goethite-userland/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/crates/goethite-hardware-abstruct/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/crates/goethite-mem-handle/src" isTestSource="false" />
       <excludeFolder url="file://$MODULE_DIR$/target" />
     </content>
     <orderEntry type="inheritedJdk" />

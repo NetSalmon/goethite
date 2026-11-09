@@ -1,5 +1,7 @@
 # goethite
 
+当前开发进度、验证结果和接续路线见 [STATUS.md](STATUS.md)。
+
 面向 RISC-V 64（`riscv64gc`）的宏内核，采用 `#![no_std]` / `#![no_main]` 设计，可运行于
 QEMU（OpenSBI 之上）。目标是 rCore / uCore 风格的**单体式教学内核**：含 MINIX v1 文件系统、
 virtio 驱动、ELF 加载、进程调度（fork / execve）等，当前覆盖单 CPU。
