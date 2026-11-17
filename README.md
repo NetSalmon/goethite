@@ -93,7 +93,7 @@ qemu-system-riscv64 -machine virt -nographic \
 
 - **分阶段启动**：低地址（MMU 关闭）与高地址（Sv39 开启）分段，见 `boot.rs` 与链接脚本。
 - **错误类型**：各子系统用 `thiserror` 定义可组合的错误枚举（`KernelError`、`AllocError`、
-  `ASpaceError`、`MemsetError`、`DeviceError`），并在 `From` 转换间向上传播，避免丢失语义。
+  `ASpaceError`、`MemSetError`、`DeviceError`），并在 `From` 转换间向上传播，避免丢失语义。
 - **类型安全**：用 `bits!` / `numeric!` 生成位域与整数新类型；用 typestate（`PageObject<T, Uninit/Init>`）
   在编译期保证未初始化内存不被读取。
 - **最小依赖**：尽量复用 workspace 内已有 crate，不为单点功能新增第三方依赖。
@@ -101,3 +101,39 @@ qemu-system-riscv64 -machine virt -nographic \
 ## 许可
 
 GPL-3.0-or-later（见 `LICENSE`）。第三方许可清单由 `about.toml` / `licenses.html` 维护。
+
+## AArch64 适配分支（早期启动）
+
+`codex/modern-arm-support` 新增 `aarch64-unknown-none` 内核构建，当前支持
+**QEMU virt 的单 CPU 早期启动**。原有 RISC-V 内核仍为默认构建目标。
+AArch64 已实现 ARM64 Image 头、EL1 直接入口 / EL2 降至 EL1、栈和 BSS 初始化、
+致命异常向量、PL011 串口，以及从设备树读取内存范围。
+
+```bash
+rustup target add aarch64-unknown-none
+cargo build -p goethite --target aarch64-unknown-none
+objcopy -I elf64-little -O binary \
+  target/aarch64-unknown-none/debug/goethite \
+  target/aarch64-unknown-none/debug/Image
+qemu-system-aarch64 -machine virt,virtualization=on -cpu cortex-a72 \
+  -m 256M -smp 1 -nographic -kernel target/aarch64-unknown-none/debug/Image
+```
+
+需安装 QEMU ARM 系统模拟器、GNU objcopy 和 Python 3。运行
+`python3 scripts/smoke-aarch64.py` 自动构建并验证 Cortex-A53、Cortex-A72、`max`
+三种 CPU 与 EL1/EL2 入口；可添加 `--release` 验证发布构建。
+验收标记为 `AArch64 early boot ready`，随后内核在中断关闭状态下等待。
+
+必须传入转换后的 **Image**：QEMU 的裸 ELF 启动不使用相同的 DTB 寄存器协议。
+本阶段遵循 [ARM64 启动协议](https://www.kernel.org/doc/html/v6.16/arch/arm64/booting.html)
+的 DTB / MMU 入口约定，平台布局参照
+[QEMU virt 文档](https://www.qemu.org/docs/master/system/arm/virt)。
+链接地址固定为 `0x40080000`，早期串口固定为 `0x09000000`；引导方须提供
+有效 DTB、关闭 MMU 和数据缓存，并只启动一个 CPU，入口须为非安全 EL1 或 EL2。
+不支持 EL3 直接入口、UEFI PE 加载、任意地址重定位或直接刷入手机/开发板。
+
+AArch64 尚未接入页表/堆、GIC/定时器、virtio、文件系统、调度和用户态；
+现有 RISC-V 子系统不能据此视为已移植。ARM 构建请使用 `-p goethite`，
+不要使用 `--workspace`（外围硬件和用户态 crate 目前仍依赖 RISC-V）。
+后续依次接入 AArch64 MMU 与内存管理、GICv3 与通用定时器，再复用设备和进程层；
+真机支持需按具体 SoC、固件入口及设备树另行适配。

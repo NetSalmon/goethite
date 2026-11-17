@@ -29,7 +29,7 @@ use goethite_riscv64::{
 use crate::mm::page_table::PageTableEntry;
 
 /// 启动栈大小（4 KiB），位于 `.bss.low.stack`。
-const BOOT_STACK_SIZE: usize = 4096;
+pub const BOOT_STACK_SIZE: usize = 4096;
 
 /// 启动阶段使用的栈，位于低地址 `.bss`，在 `ummu` 开启前用物理地址寻址。
 #[unsafe(link_section = ".bss.low.stack")]

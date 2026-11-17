@@ -2,16 +2,16 @@ pub mod exec;
 pub mod schedule;
 pub mod vma;
 
-use alloc::{rc::Weak, sync::Arc, vec::Vec};
+use alloc::{collections::BTreeMap, rc::Weak, sync::Arc, vec::Vec};
 use core::{arch::naked_asm, mem::offset_of};
 
 use goethite_config::MAX_CPU;
 use goethite_id_alloc::{Id, IdAlloc};
 use goethite_macros::lazy;
 use goethite_riscv64::registers::Registers;
-use goethite_sync::PerCpu;
+use goethite_sync::{LazyLock, PerCpu, SpinLock};
 
-use crate::{fs::FileDesc, proc::vma::MemorySet};
+use crate::{fs::FileDesc, mm::stack::Stack, proc::vma::MemorySet};
 
 #[lazy]
 pub static CURRENT_TASK: PerCpu<Option<TaskId>, MAX_CPU> = PerCpu::new([None; MAX_CPU]);
@@ -158,6 +158,8 @@ pub struct Task {
     pub file_desc: Vec<FileDesc>,
 
     pub priority: u8,
+    /// 本任务的内核栈；`Stack` 的克隆通过 `RefHandle` 共享同一段栈内存。
+    pub stack: Stack,
     pub context: Context,
 }
 
@@ -223,3 +225,6 @@ pub struct TaskId(pub usize);
 /// 线程组（进程）id（tgid）：同一进程的所有线程共享同一 tgid 与地址空间。
 #[derive(Id)]
 pub struct TaskGroupId(pub usize);
+
+#[lazy(spin)]
+pub static STACKS: BTreeMap<TaskGroupId, Stack> = BTreeMap::new();

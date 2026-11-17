@@ -127,7 +127,7 @@ pub struct LoadSegment {
 
 /// [`MemorySet`] 操作可能出现的错误。
 #[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
-pub enum MemsetError {
+pub enum MemSetError {
     /// 底层分配失败。
     #[error(transparent)]
     Alloc(AllocError),
@@ -142,15 +142,15 @@ pub enum MemsetError {
     Unmapped,
 }
 
-impl From<AllocError> for MemsetError {
+impl From<AllocError> for MemSetError {
     fn from(e: AllocError) -> Self {
-        MemsetError::Alloc(e)
+        MemSetError::Alloc(e)
     }
 }
 
-impl From<ASpaceError> for MemsetError {
+impl From<ASpaceError> for MemSetError {
     fn from(e: ASpaceError) -> Self {
-        MemsetError::As(e)
+        MemSetError::As(e)
     }
 }
 
@@ -165,11 +165,11 @@ pub struct MemorySet {
 impl MemorySet {
     /// 创建一个新进程的内存集合：分配一个进程 id（tgid），并在地址空间管理器中
     /// 为其关联一个新的空地址空间。
-    pub fn new() -> Result<Self, MemsetError> {
-        let tgid = alloc_tgid().ok_or(MemsetError::IdExhausted)?;
+    pub fn new() -> Result<Self, MemSetError> {
+        let tgid = alloc_tgid().ok_or(MemSetError::IdExhausted)?;
         if let Err(e) = AS_MANAGER.write().alloc(tgid) {
             free_tgid(tgid);
-            return Err(MemsetError::As(e));
+            return Err(MemSetError::As(e));
         }
         Ok(Self {
             vmas: Vec::new(),
@@ -180,7 +180,7 @@ impl MemorySet {
     /// 由一段段加载段描述符构建内存集合。
     ///
     /// 每段都会被分配物理帧、映射进页表并登记为对应的 [`Vma`]。
-    pub fn with_segments(segments: &[LoadSegment]) -> Result<Self, MemsetError> {
+    pub fn with_segments(segments: &[LoadSegment]) -> Result<Self, MemSetError> {
         let mut ms = MemorySet::new()?;
         for seg in segments {
             ms.add_region(seg.vaddr, seg.memsz, seg.perms, seg.kind, seg.file_offset)?;
@@ -202,7 +202,7 @@ impl MemorySet {
         perms: PageTableEntryFlags,
         kind: VmaKind,
         file_offset: usize,
-    ) -> Result<(), MemsetError> {
+    ) -> Result<(), MemSetError> {
         let total = align(len.max(1), PAGE_SIZE);
         let backing = self.alloc_and_map(vaddr, total, perms)?;
         self.vmas.push(Vma {
@@ -223,7 +223,7 @@ impl MemorySet {
         len: usize,
         perms: PageTableEntryFlags,
         kind: VmaKind,
-    ) -> Result<(), MemsetError> {
+    ) -> Result<(), MemSetError> {
         self.add_region(vaddr, len, perms, kind, 0)
     }
 
@@ -236,7 +236,7 @@ impl MemorySet {
         mut vaddr: VirtualAddr,
         span: usize,
         perms: PageTableEntryFlags,
-    ) -> Result<Vec<MappedRegion>, MemsetError> {
+    ) -> Result<Vec<MappedRegion>, MemSetError> {
         let total = align(span.max(1), PAGE_SIZE);
         let mut remaining = total;
         let mut backing: Vec<MappedRegion> = Vec::new();
@@ -255,7 +255,7 @@ impl MemorySet {
                     for mr in &backing {
                         mgr.unmap(self.tgid, mr.vaddr).ok();
                     }
-                    return Err(MemsetError::Alloc(AllocError::OutOfMemory));
+                    return Err(MemSetError::Alloc(AllocError::OutOfMemory));
                 }
             };
             let pa = region.as_phys_addr();
@@ -264,7 +264,7 @@ impl MemorySet {
                 for mr in &backing {
                     mgr.unmap(self.tgid, mr.vaddr).ok();
                 }
-                return Err(MemsetError::As(e));
+                return Err(MemSetError::As(e));
             }
 
             backing.push(MappedRegion { region, vaddr });
@@ -284,8 +284,8 @@ impl MemorySet {
     /// 处理一次缺页：优先处理栈向低地址增长，随后在覆盖该地址的 VMA 内按需映射缺失页。
     ///
     /// 对于已映射的页直接返回（权限类缺页由上层另行判定）；对未被任何 VMA 覆盖的
-    /// 地址返回 [`MemsetError::Unmapped`]。
-    pub fn handle_page_fault(&mut self, fault_addr: VirtualAddr) -> Result<(), MemsetError> {
+    /// 地址返回 [`MemSetError::Unmapped`]。
+    pub fn handle_page_fault(&mut self, fault_addr: VirtualAddr) -> Result<(), MemSetError> {
         let fault = usize::from(fault_addr);
         let page = align(fault, PAGE_SIZE);
 
@@ -299,7 +299,7 @@ impl MemorySet {
 
         let idx = match self.vmas.iter().position(|v| v.covers(page)) {
             Some(i) => i,
-            None => return Err(MemsetError::Unmapped),
+            None => return Err(MemSetError::Unmapped),
         };
 
         let va = VirtualAddr::from(page);
@@ -311,7 +311,7 @@ impl MemorySet {
     }
 
     /// 把单个缺失页分配并映射到指定 VMA，并登记进其 `backing`。
-    fn map_page_to(&mut self, idx: usize, page: VirtualAddr) -> Result<(), MemsetError> {
+    fn map_page_to(&mut self, idx: usize, page: VirtualAddr) -> Result<(), MemSetError> {
         let perms = self.vmas[idx].perms;
         let mut new_backing = self.alloc_and_map(page, PAGE_SIZE, perms)?;
         self.vmas[idx].backing.append(&mut new_backing);
@@ -319,12 +319,12 @@ impl MemorySet {
     }
 
     /// 扩展栈：把栈 VMA 的起点下移到 `new_start`，并映射新增的披露范围。
-    pub fn grow_stack(&mut self, new_start: VirtualAddr) -> Result<(), MemsetError> {
+    pub fn grow_stack(&mut self, new_start: VirtualAddr) -> Result<(), MemSetError> {
         let idx = self
             .vmas
             .iter()
             .position(|v| v.kind == VmaKind::Stack)
-            .ok_or(MemsetError::Unmapped)?;
+            .ok_or(MemSetError::Unmapped)?;
 
         let cur_start = usize::from(self.vmas[idx].vaddr);
         let new_start_u = usize::from(new_start);
@@ -346,12 +346,12 @@ impl MemorySet {
     /// 扩展堆：把堆 VMA 的末端上移到 `new_brk`，并映射新增范围。
     ///
     /// 只支持增长；收缩（释放多出的帧）留给调用方在确定不再需要时自行 `unmap` 处理。
-    pub fn set_brk(&mut self, new_brk: VirtualAddr) -> Result<(), MemsetError> {
+    pub fn set_brk(&mut self, new_brk: VirtualAddr) -> Result<(), MemSetError> {
         let idx = self
             .vmas
             .iter()
             .position(|v| v.kind == VmaKind::Heap)
-            .ok_or(MemsetError::Unmapped)?;
+            .ok_or(MemSetError::Unmapped)?;
 
         let cur_end = usize::from(self.vmas[idx].vaddr) + self.vmas[idx].len;
         let new_end = usize::from(new_brk);
@@ -375,7 +375,7 @@ impl MemorySet {
     /// # Safety
     ///
     /// 调用方需保证处理好切换地址空间带来的地址冲突风险。
-    pub unsafe fn activate(&self) -> Result<(), MemsetError> {
+    pub unsafe fn activate(&self) -> Result<(), MemSetError> {
         unsafe { AS_MANAGER.read().activate(self.tgid) }?;
         Ok(())
     }

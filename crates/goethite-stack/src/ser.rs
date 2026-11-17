@@ -10,14 +10,15 @@
 use crate::{
     error::Error,
     raw::{
-        GOETHITE_STACK_MAGIC, HEADER_SIZE, PAIR_SIZE, STRING_ID_SIZE, STRING_REF_SIZE, write_le32,
+        AUX_ENTRY_SIZE, GOETHITE_STACK_MAGIC, HEADER_SIZE, PAIR_SIZE, STRING_ID_SIZE,
+        STRING_REF_SIZE, write_le32, write_le64,
     },
 };
 
 /// 序列化的输入：全部为借用切片，便于与 `#![no_std]` / 无分配环境配合。
 ///
-/// `env` 与 `auxv` 均为按序排列的键值对切片；`argv` 为按序排列的参数字符串切片。
-/// 注意：`env` / `auxv` 出现重复键是允许的，序列化时各自独立去重字节内容，但在还原为
+/// `env` 为按序排列的环境变量键值对切片；`auxv` 为按序排列的辅助向量（编号与数值）切片；`argv` 为按序排列的参数字符串切片。
+/// 注意：`env` 出现重复键是允许的，序列化时各自独立去重字节内容，但在还原为
 /// [`crate::Stack`]（使用 `BTreeMap`）时重复键会被后者折叠。
 #[derive(Debug, Clone, Copy)]
 pub struct Input<'a> {
@@ -25,8 +26,8 @@ pub struct Input<'a> {
     pub argv: &'a [&'a str],
     /// 环境变量（`env`），键值对。
     pub env: &'a [(&'a str, &'a str)],
-    /// 辅助向量（`auxv`），键值对。
-    pub auxv: &'a [(&'a str, &'a str)],
+    /// 辅助向量（`auxv`），编号与内容。
+    pub auxv: &'a [(u64, u64)],
 }
 
 impl<'a> Input<'a> {
@@ -40,24 +41,19 @@ impl<'a> Input<'a> {
     }
 }
 
-/// 规范序字符串总数：先按对交替列出 `env` 的键与值，再是 `auxv` 的键与值，最后是 `argv`。
+/// 规范序字符串总数：先按对交替列出 `env` 的键与值，最后是 `argv`。
 fn canonical_len(input: &Input<'_>) -> usize {
-    input.env.len() * 2 + input.auxv.len() * 2 + input.argv.len()
+    input.env.len() * 2 + input.argv.len()
 }
 
 /// 规范序中第 `j` 个字符串。
 fn canonical_str<'a>(input: &Input<'a>, j: usize) -> &'a str {
     let envn = input.env.len();
-    let auxn = input.auxv.len();
     if j < envn * 2 {
         let pair = input.env[j / 2];
         if j % 2 == 0 { pair.0 } else { pair.1 }
-    } else if j < envn * 2 + auxn * 2 {
-        let r = j - envn * 2;
-        let pair = input.auxv[r / 2];
-        if r % 2 == 0 { pair.0 } else { pair.1 }
     } else {
-        input.argv[j - envn * 2 - auxn * 2]
+        input.argv[j - envn * 2]
     }
 }
 
@@ -120,7 +116,7 @@ pub fn required_len(input: &Input<'_>) -> usize {
     HEADER_SIZE
         + count * STRING_REF_SIZE
         + input.env.len() * PAIR_SIZE
-        + input.auxv.len() * PAIR_SIZE
+        + input.auxv.len() * AUX_ENTRY_SIZE
         + input.argv.len() * STRING_ID_SIZE
         + pool_len(input)
 }
@@ -145,7 +141,7 @@ pub fn write(buf: &mut [u8], input: &Input<'_>) -> Result<usize, Error> {
     let index_offset = HEADER_SIZE;
     let envp_offset = index_offset + count * STRING_REF_SIZE;
     let auxv_offset = envp_offset + envn * PAIR_SIZE;
-    let argv_offset = auxv_offset + auxn * PAIR_SIZE;
+    let argv_offset = auxv_offset + auxn * AUX_ENTRY_SIZE;
     let pool_offset = argv_offset + argc * STRING_ID_SIZE;
     let total_size = total as u32;
 
@@ -184,15 +180,14 @@ pub fn write(buf: &mut [u8], input: &Input<'_>) -> Result<usize, Error> {
     }
 
     // 辅助向量表
-    let aux_base = envn * 2;
-    for (i, (_key, _value)) in input.auxv.iter().enumerate() {
-        let off = auxv_offset + i * PAIR_SIZE;
-        write_le32(buf, off, id_of(input, aux_base + i * 2) as u32);
-        write_le32(buf, off + 4, id_of(input, aux_base + i * 2 + 1) as u32);
+    for (i, &(key, value)) in input.auxv.iter().enumerate() {
+        let off = auxv_offset + i * AUX_ENTRY_SIZE;
+        write_le64(buf, off, key);
+        write_le64(buf, off + 8, value);
     }
 
     // 参数表
-    let arg_base = envn * 2 + auxn * 2;
+    let arg_base = envn * 2;
     for (i, _arg) in input.argv.iter().enumerate() {
         let off = argv_offset + i * STRING_ID_SIZE;
         write_le32(buf, off, id_of(input, arg_base + i) as u32);

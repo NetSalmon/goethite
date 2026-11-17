@@ -78,3 +78,20 @@ timeout 8s qemu-system-riscv64 \
 - README 提及的 fork/execve 等属于目标，实际进度参见本文和代码。
 - 固定可用工具链，纳管镜像生成器，补可重复的 QEMU 冒烟脚本。
 - 后续实现变化时更新本状态快照。
+
+## AArch64 分支增量（2026-11-09）
+
+新增独立 AArch64 早期启动路径：`src/aarch64/` 与
+`src/link-scripts/aarch64.ld`。`src/main.rs` 按架构选择入口，原 RISC-V
+入口移至 `src/riscv64.rs`；根包的 RISC-V 依赖仅在对应目标启用。
+
+QEMU virt 已验证单核 EL1 直接启动和 EL2→EL1 启动，包含 Image 头、
+BSS/栈、串口输出、FDT 内存读取和致命异常处理入口。当前 MMU 关闭，
+中断屏蔽，尚未接入通用内核子系统；异常向量已链接，尚未执行故障注入测试。
+验证脚本：`python3 scripts/smoke-aarch64.py`（可附加 `--release`）。
+详细命令、入口约束与后续工作见 README 的 AArch64 节。
+
+本次结果：AArch64 debug/release 均在 Cortex-A53、Cortex-A72 和 max 上达到
+ready 标记，发布版额外核对固件入口 EL1/EL2；`cargo build --workspace`
+通过（保留现有未使用项警告）。RISC-V 使用本机 MINIX 镜像的快照启动，
+达到根文件系统挂载及原有 breakpoint；该镜像的 `/hello` 为二进制内容。

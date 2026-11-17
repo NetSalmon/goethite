@@ -12,7 +12,8 @@
 //! - [`desc`]：从设备树（FDT）解析设备描述并建立索引；
 //! - [`driver`]：设备驱动注册表与设备-驱动双向匹配；
 //! - 具体驱动：`ns16550a`（UART）、`virtio_mmio`（传输层）、`virtio_blk`、
-//!   `virtio_rng`、`fw_cfg`（QEMU firmware config）、`ramfb`（QEMU 显示）；
+//!   `virtio_rng`、`virtio_net`（QEMU virtio-mmio 网卡）、`fw_cfg`（QEMU
+//!   firmware config）、`ramfb`（QEMU 显示）；
 //! - 平台辅助：`plic`（外部中断控制器）、`reboot`（平台复位）。
 
 pub mod desc;
@@ -24,6 +25,7 @@ pub mod ramfb;
 pub mod reboot;
 pub mod virtio_blk;
 pub mod virtio_mmio;
+pub mod virtio_net;
 pub mod virtio_rng;
 
 use alloc::{
@@ -339,10 +341,18 @@ pub mod preset {
     pub const BLOCK: usize = 3;
     /// 杂项设备。
     pub const MISC: usize = 4;
+    /// 网络设备（virtio-net 等）。
+    pub const NET: usize = 5;
 }
 
 /// 全部内核预设主设备号，在 [`DeviceManager::new`] 时预留。
-pub const PRESET_MAJORS: [usize; 4] = [preset::MEM, preset::TTY, preset::BLOCK, preset::MISC];
+pub const PRESET_MAJORS: [usize; 5] = [
+    preset::MEM,
+    preset::TTY,
+    preset::BLOCK,
+    preset::MISC,
+    preset::NET,
+];
 
 /// 驱动对主设备号的申请方式，由 [`Driver::major`](Driver::major) 声明。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

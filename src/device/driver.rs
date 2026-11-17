@@ -150,7 +150,7 @@ pub fn match_devices(driver: &dyn Driver) -> Vec<RankedDesc> {
 /// [`DEVICE_MANAGER`](crate::device::DEVICE_MANAGER) 中该驱动的主设备号下。
 ///
 /// 之所以要「依次尝试」而非只挑 rank 最高者：多个驱动可能共享同一 compatible
-/// 串（如 virtio-blk 与 virtio-rng 都以 `virtio,mmio` 匹配），需要靠 `probe`
+/// 串（如 virtio-blk、virtio-net 与 virtio-rng 都以 `virtio,mmio` 匹配），需要靠 `probe`
 /// 读取设备类型寄存器才能区分。
 ///
 /// 返回成功登记的设备数。先快照驱动与设备描述再逐个 probe，避免在 probe

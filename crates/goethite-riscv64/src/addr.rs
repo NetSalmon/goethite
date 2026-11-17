@@ -100,6 +100,9 @@ impl From<PhysicalAddr> for u64 {
     }
 }
 
+/// alias of [`PhysicalAddr`]
+pub type PA = PhysicalAddr;
+
 impl PhysicalAddr {
     /// 把物理地址当作类型 `T` 的常量指针。
     ///
@@ -125,6 +128,9 @@ impl PhysicalAddr {
         Self(self.0 + (count * size_of::<T>()))
     }
 }
+
+/// alias of [`VirtualAddr`]
+pub type VA = VirtualAddr;
 
 impl VirtualAddr {
     /// 把虚拟地址当作类型 `T` 的常量指针。
@@ -164,7 +170,9 @@ impl From<VirtualAddr> for PhysicalAddr {
     }
 }
 
-pub enum VPN {
+pub type VPN = VirtualPageNumber;
+
+pub enum VirtualPageNumber {
     VPN0,
     VPN1,
     VPN2,
@@ -183,7 +191,10 @@ impl GetPPN<usize> for PhysicalAddr {
         }
     }
 }
-pub enum PPN {
+
+pub type PPN = PhysicalPageNumber;
+
+pub enum PhysicalPageNumber {
     PPN0,
     PPN1,
     PPN2,

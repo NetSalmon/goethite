@@ -7,8 +7,12 @@ authors = ["netsalmon"]
 readme = "README.md"
 
 [dependencies]
+fdt = "0.2.0-alpha2"
+
+[target.'cfg(target_arch = "riscv64")'.dependencies]
 goethite-macros = { path = "crates/goethite-macros" }
 goethite-riscv64 = { path = "crates/goethite-riscv64" }
+goethite-riscv64-asm = { path = "crates/goethite-riscv64-asm" }
 goethite-sync = { path = "crates/goethite-sync" }
 goethite-config = { path = "crates/goethite-config" }
 goethite-id-alloc = { path = "crates/goethite-id-alloc" }
@@ -18,7 +22,6 @@ goethite-abi = { path = "crates/goethite-abi" }
 goethite-fs = { path = "crates/goethite-fs" }
 goethite-minix = { path = "crates/goethite-minix" }
 goethite-elf = { path = "crates/goethite-elf" }
-fdt = "0.2.0-alpha2"
 paste = "1.0.15"
 thiserror = { version = "2.0.20", default-features = false }
 

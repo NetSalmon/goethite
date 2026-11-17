@@ -4,6 +4,7 @@ use goethite_riscv64::{
     registers::{Registers, csr::Sepc},
     trap::{Exception, Interrupt, Trap},
 };
+use goethite_riscv64_asm::Encoded;
 use goethite_stdio::println;
 
 use crate::{
@@ -12,10 +13,30 @@ use crate::{
 };
 
 pub enum Todo {
+    /// 写入 `a0`，并向后跳过 `skip` 条完整指令后继续执行。
     Return { value: u64, skip: u64 },
+    /// 不修改返回值，并向后跳过 `skip` 条完整指令后继续执行。
     NoReturn { skip: u64 },
+    /// 保持 `sepc` 不变，让调度器决定后续执行流。
     Yield,
+    /// 保持 `sepc` 不变，直接返回。
     Discard,
+}
+
+/// 按实际指令长度推进 `skip` 条指令。
+///
+/// 每条指令的低两位决定它是 16 位压缩指令还是 32 位标准指令，
+/// 因此不能假设固定 4 字节步长。
+///
+/// # Safety
+///
+/// 从 `pc` 开始的 `skip` 条指令都必须位于可读内存中。
+#[inline]
+unsafe fn skip_instructions(mut pc: u64, skip: u64) -> u64 {
+    for _ in 0..skip {
+        pc += unsafe { Encoded::read(pc as *const u8) }.size() as u64;
+    }
+    pc
 }
 
 #[unsafe(no_mangle)]
@@ -54,9 +75,9 @@ pub fn trap_handler(sepc: u64, scause: i64, stval: u64, stvec: u64, sstatus: u64
     let sepc = match todo {
         Todo::Return { value, skip } => {
             context.a0 = value;
-            sepc + skip * 4
+            unsafe { skip_instructions(sepc, skip) }
         }
-        Todo::NoReturn { skip } => sepc + skip * 4,
+        Todo::NoReturn { skip } => unsafe { skip_instructions(sepc, skip) },
         Todo::Yield => sepc,
         Todo::Discard => sepc,
     };

@@ -24,6 +24,7 @@ pub mod fs;
 pub mod init;
 pub mod mm;
 pub mod proc;
+pub mod switch;
 pub mod syscall;
 pub mod trap;
 
@@ -31,13 +32,16 @@ extern crate alloc;
 
 use core::arch::naked_asm;
 
-use goethite_macros::critical_section;
+use goethite_macros::{critical_section, load_symbol};
 use goethite_riscv64::{
-    addr::{PhysicalAddr, VirtualAddr},
+    addr::{PA, PhysicalAddr, VirtualAddr},
     breakpoint,
     registers::csr::Stvec,
 };
 use trap::entry::__kernel_trap_entry;
+
+use crate::{boot::BOOT_STACK_SIZE, mm::alloc::FRAME_ALLOCATOR};
+use crate::proc::schedule::SCHEDULER_STACK;
 
 /// Kernel Stack Size limit 16KiB
 pub const KERNEL_STACK_SIZE: usize = 0x1000 * 16;
@@ -65,6 +69,15 @@ pub fn main(ptr: *mut u32) {
     critical_section! {
         let fdt_ptr = PhysicalAddr::from(ptr as usize).as_vaddr();
         unsafe { FDT_ADDR = fdt_ptr; }
+
+        let boot_stack = PA::from(load_symbol!(__boot_stack)).as_vaddr().into();
+
+        // 销毁boot栈
+        FRAME_ALLOCATOR
+            .force()
+            .lock()
+            .add_frame(boot_stack, boot_stack + BOOT_STACK_SIZE);
+
         let memory = init::init_buddy_system().unwrap();
         init::init_page_table(&memory).unwrap();
         init::init_devices();
@@ -75,6 +88,8 @@ pub fn main(ptr: *mut u32) {
     Stvec::write(__kernel_trap_entry as *const () as u64);
 
     breakpoint();
+
+
 
     loop {
         core::hint::spin_loop();

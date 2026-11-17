@@ -25,7 +25,12 @@ use core::{
 
 use goethite_abi::SyscallTrait;
 use goethite_stack::{ArgsIter, AuxvIter, EnvIter};
-pub use goethite_stack::{Error as StackError, StackRef};
+pub use goethite_stack::{
+    AT_BASE, AT_BASE_PLATFORM, AT_CLKTCK, AT_EGID, AT_ENTRY, AT_EUID, AT_EXECFD, AT_EXECFN,
+    AT_FLAGS, AT_GID, AT_HWCAP, AT_HWCAP2, AT_IGNORE, AT_NOTELF, AT_NULL, AT_PAGESZ, AT_PHDR,
+    AT_PHENT, AT_PHNUM, AT_PLATFORM, AT_RANDOM, AT_SECURE, AT_SYSINFO, AT_SYSINFO_EHDR, AT_UID,
+    AuxEntry, Error as StackError, StackRef,
+};
 use goethite_syscall::Syscalls;
 
 /// 标准输出文件描述符。
@@ -138,7 +143,7 @@ pub fn envs() -> Option<EnvIter<'static>> {
     stack().map(|stack| stack.env())
 }
 
-/// 迭代辅助向量（`auxv`），产出 `(&str, &str)`。
+/// 迭代辅助向量（`auxv`），产出 `(u64, u64)`。
 pub fn auxv() -> Option<AuxvIter<'static>> {
     stack().map(|stack| stack.auxv())
 }

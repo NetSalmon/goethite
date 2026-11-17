@@ -105,7 +105,9 @@ mmio_regs! {
 ///
 /// 提供与具体设备类型无关的握手（[`Self::handshake`]）、队列 0 的收发原语
 /// （[`Self::submit`]）以及通知（[`Self::notify`]）。新设备驱动只需实现
-/// [`Self::DEVICE_TYPE`] 与 `device` / `queues` 两个访问器。
+/// [`Self::DEVICE_TYPE`] 与 `device` / `queues` 两个访问器；需要多条队列时
+/// 覆写 [`Self::queue_count`]，并在 [`Self::prepare_queues`] 里于 `DRIVER_OK`
+/// 之前备好接收缓冲。
 pub trait VirtioDevice: Sized {
     /// 设备类型（virtio 规范编号），探测时按此匹配 `device_id` 寄存器。
     const DEVICE_TYPE: DeviceType;
@@ -128,33 +130,61 @@ pub trait VirtioDevice: Sized {
         0
     }
 
-    /// 完成 ACK / DRIVER 状态、特性协商与队列 0 配置的完整握手。
+    /// 要配置的 virtqueue 个数。默认只有队列 0；网卡等设备覆写为收发两队列。
+    fn queue_count(&self) -> u32 {
+        1
+    }
+
+    /// 在置 `DRIVER_OK` 之前调整已配置的队列。
     ///
-    /// 队列尚未配置时，[`Self::submit`] 会自动补一次握手。
+    /// 网卡在这一步把接收缓冲放进 avail 环：设备从 `DRIVER_OK` 起就可以往这些
+    /// 缓冲里写包。
+    fn prepare_queues(&self, _queues: &mut [VirtQueue]) -> Result<(), DeviceError> {
+        Ok(())
+    }
+
+    /// `DRIVER_OK` 已经置位、队列已经保存后的收尾（例如通知接收队列）。
+    fn activate(&self) -> Result<(), DeviceError> {
+        Ok(())
+    }
+
+    /// 完成 ACK / DRIVER 状态、特性协商与队列配置的完整握手。
+    ///
+    /// 队列尚未配置时，[`Self::submit`] 会自动补一次握手。已经握过手则直接返回。
     fn handshake(&self) -> Result<(), DeviceError> {
+        if self.queues().lock().is_some() {
+            return Ok(());
+        }
+
         let mut cfg = VirtQueueConfig {
             device: self.device(),
         };
         let is_modern = cfg.version() != VIRTIO_VERSION_LEGACY;
-        let queue_config = QueueConfig {
-            index: 0,
-            size: RING_SIZE as u32,
-        };
+        let queue_count = self.queue_count();
+        if queue_count == 0 {
+            return Err(DeviceError::NotReady);
+        }
+        let configs: Vec<QueueConfig> = (0..queue_count)
+            .map(|index| QueueConfig {
+                index,
+                size: RING_SIZE as u32,
+            })
+            .collect();
 
-        let queues = if is_modern {
+        let mut ready = if is_modern {
             cfg.handshake()
                 .modern(|low, high| self.negotiate(low, high))?
-                .setup_queue(queue_config)?
-                .finish()
+                .setup_queues(&configs)?
         } else {
             cfg.handshake()
-                .legacy(|f| self.negotiate_legacy(f))?
-                .setup_queue(queue_config)?
-                .finish()
+                .legacy(|features| self.negotiate_legacy(features))?
+                .setup_queues(&configs)?
         };
 
+        self.prepare_queues(ready.queues_mut())?;
+        let queues = ready.finish();
         *self.queues().lock() = Some(queues);
-        Ok(())
+        self.activate()
     }
 
     /// 队列 0 的加锁访问；未配置时先补一次握手。
@@ -190,10 +220,15 @@ pub trait VirtioDevice: Sized {
         queue.wait_used(last_used)
     }
 
+    /// 通知设备处理队列 `index`。
+    fn notify_queue(&self, index: u32) {
+        // `QUEUE_NOTIFY_OFFSET` 由 `mmio_regs!` 根据 queue_notify 寄存器生成。
+        self.device().mmio.write::<u32>(QUEUE_NOTIFY_OFFSET, index);
+        fence(Ordering::SeqCst);
+    }
+
     /// 通知设备处理队列 0。
     fn notify(&self) {
-        // `QUEUE_NOTIFY_OFFSET` 由 `mmio_regs!` 根据 queue_notify 寄存器生成。
-        self.device().mmio.write::<u32>(QUEUE_NOTIFY_OFFSET, 0);
-        fence(Ordering::SeqCst);
+        self.notify_queue(0);
     }
 }

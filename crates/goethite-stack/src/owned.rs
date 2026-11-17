@@ -28,15 +28,15 @@ pub struct Stack {
     pub argv: Vec<String>,
     /// 环境变量（`env`），键值对。重复键会被折叠（后写覆盖先写）。
     pub env: BTreeMap<String, String>,
-    /// 辅助向量（`auxv`），键值对。
-    pub auxv: BTreeMap<String, String>,
+    /// 辅助向量（`auxv`），编号与内容。
+    pub auxv: BTreeMap<u64, u64>,
 }
 
 /// 从 [`Stack`] 借用收集出 [`Input`] 所需的切片，并持有这些借用，供整个序列化过程使用。
 struct InputRef<'a> {
     argv: Vec<&'a str>,
     env: Vec<(&'a str, &'a str)>,
-    auxv: Vec<(&'a str, &'a str)>,
+    auxv: Vec<(u64, u64)>,
 }
 
 impl<'a> InputRef<'a> {
@@ -48,11 +48,7 @@ impl<'a> InputRef<'a> {
                 .iter()
                 .map(|(k, v)| (k.as_str(), v.as_str()))
                 .collect(),
-            auxv: stack
-                .auxv
-                .iter()
-                .map(|(k, v)| (k.as_str(), v.as_str()))
-                .collect(),
+            auxv: stack.auxv.iter().map(|(&k, &v)| (k, v)).collect(),
         }
     }
 
@@ -75,7 +71,7 @@ impl Stack {
     pub fn with_parts(
         argv: Vec<String>,
         env: BTreeMap<String, String>,
-        auxv: BTreeMap<String, String>,
+        auxv: BTreeMap<u64, u64>,
     ) -> Self {
         Self { argv, env, auxv }
     }
@@ -100,7 +96,7 @@ impl Stack {
         let mut auxv = BTreeMap::new();
         for entry in view.try_auxv() {
             let (k, v) = entry?;
-            auxv.insert(k.to_string(), v.to_string());
+            auxv.insert(k, v);
         }
 
         Ok(Stack { argv, env, auxv })
@@ -138,10 +134,7 @@ impl From<&StackRef<'_>> for Stack {
                 .env()
                 .map(|(k, v)| (k.to_string(), v.to_string()))
                 .collect(),
-            auxv: view
-                .auxv()
-                .map(|(k, v)| (k.to_string(), v.to_string()))
-                .collect(),
+            auxv: view.auxv().collect(),
         }
     }
 }

@@ -7,7 +7,10 @@
 //! - [`PageTable`]：512 个页表项组成的、按页（4 KiB）对齐的 Sv39 页表。
 use goethite_config::PAGE_TABLE_SIZE;
 use goethite_macros::bits;
-use goethite_riscv64::addr::{GetPPN, GetVPN, PhysicalAddr, PPN};
+use goethite_riscv64::addr::{GetPPN, PA, PPN};
+
+/// alias of [`PageTableEntry`]
+pub type PTE = PageTableEntry;
 
 bits! {
     pub type PageTableEntry: u64 {
@@ -28,7 +31,7 @@ bits! {
     }
 }
 
-impl GetPPN<u64> for PageTableEntry {
+impl GetPPN<u64> for PTE {
     fn get_ppn(&self, cmd: PPN) -> u64 {
         match cmd {
             PPN::PPN0 => self.ppn0(),
@@ -63,18 +66,18 @@ bits! {
 #[derive(Debug)]
 pub struct PageTable {
     /// 页表原始的 512 项条目。
-    pub(crate) entries: [PageTableEntry; PAGE_TABLE_SIZE],
+    pub(crate) entries: [PTE; PAGE_TABLE_SIZE],
 }
 
 impl PageTable {
     /// 构造一个全零的页表（所有项 `V=0`，不映射任何地址）。
     pub const fn new() -> PageTable {
         PageTable {
-            entries: [PageTableEntry::new(); PAGE_TABLE_SIZE],
+            entries: [PTE::new(); PAGE_TABLE_SIZE],
         }
     }
 
-    pub fn get_valid(&self, index: usize) -> Option<&PageTableEntry> {
+    pub fn get_valid(&self, index: usize) -> Option<&PTE> {
         let pte = self.entries.get(index)?;
         if !pte.validate() {
             return None;
@@ -83,21 +86,21 @@ impl PageTable {
     }
 
     /// 把 `entry` 写入第 `index` 项（`index` 通常是某一级的 VPN 分量）。
-    pub fn insert(&mut self, entry: PageTableEntry, index: usize) {
+    pub fn insert(&mut self, entry: PTE, index: usize) {
         self.entries[index] = entry;
     }
 
     /// 取第 `index` 项，下标越界时返回 `None`。
     #[inline]
-    pub fn nth(&self, index: usize) -> Option<&PageTableEntry> {
+    pub fn nth(&self, index: usize) -> Option<&PTE> {
         self.entries.get(index)
     }
 
     /// 取第 `index` 项对应的物理地址（由该页表项的 PPN 还原），越界时返回 `None`。
     #[inline]
-    pub fn nth_as_addr(&self, index: usize) -> Option<PhysicalAddr> {
+    pub fn nth_as_addr(&self, index: usize) -> Option<PA> {
         let pte = self.nth(index)?;
-        let mut pa = PhysicalAddr::new();
+        let mut pa = PA::new();
         pa.set_ppn(pte.ppn() as usize);
         Some(pa)
     }
@@ -110,12 +113,12 @@ impl PageTable {
 
     /// 返回页表的物理地址：若自身位于内核高半区虚拟地址则做线性偏移转换。
     #[inline]
-    pub fn as_phys_addr(&self) -> PhysicalAddr {
+    pub fn as_phys_addr(&self) -> PA {
         let ptr = self.as_ptr() as usize;
         if ptr >= goethite_config::KERNEL_OFFSET {
             goethite_riscv64::addr::VirtualAddr::from(ptr).as_paddr()
         } else {
-            PhysicalAddr::from(ptr)
+            PA::from(ptr)
         }
     }
 

@@ -22,6 +22,7 @@ dependencies = [
  "goethite-macros",
  "goethite-minix",
  "goethite-riscv64",
+ "goethite-riscv64-asm",
  "goethite-stdio",
  "goethite-sync",
  "paste",
@@ -113,6 +114,13 @@ dependencies = [
  "goethite-config",
  "goethite-macros",
  "paste",
+]
+
+[[package]]
+name = "goethite-riscv64-asm"
+version = "0.1.0"
+dependencies = [
+ "goethite-macros",
 ]
 
 [[package]]

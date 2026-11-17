@@ -10,7 +10,7 @@ use crate::{
     FDT_ADDR,
     device::{
         desc::DEVICE_DESC_MANAGER, driver, ns16550a::Ns16550aDriver, plic,
-        virtio_blk::VirtioBlkDriver, virtio_rng::VirtioRngDriver,
+        virtio_blk::VirtioBlkDriver, virtio_net::VirtioNetDriver, virtio_rng::VirtioRngDriver,
     },
     error::{KernelError, KernelResult},
     mm::{address_space::AS_MANAGER, alloc::FRAME_ALLOCATOR, page_table::PageTableEntryFlags},
@@ -27,10 +27,11 @@ pub fn init_devices() -> usize {
 /// 注册内核内置的块 / 字符设备驱动。
 ///
 /// 各驱动在 [`driver::register`] 时申请主设备号（UART 用预设 TTY、块设备用
-/// 预设 BLOCK、熵源用预设 MISC）。
+/// 预设 BLOCK、网卡用预设 NET、熵源用预设 MISC）。
 fn register_builtin_drivers() {
     let _ = driver::register(Arc::new(Ns16550aDriver));
     let _ = driver::register(Arc::new(VirtioBlkDriver));
+    let _ = driver::register(Arc::new(VirtioNetDriver));
     let _ = driver::register(Arc::new(VirtioRngDriver));
 }
 
@@ -57,11 +58,6 @@ pub fn init_filesystem() {
     match crate::fs::init() {
         Ok(()) => {
             println!("mounted minix v1 root filesystem");
-            // 冒烟测试：经 VFS 读回磁盘上的 /hello，验证块设备 → MINIX → VFS 全链路。
-            match crate::fs::read_file("/hello") {
-                Ok(data) => println!("/hello: {}", String::from_utf8_lossy(&data).trim_end()),
-                Err(err) => eprintln!("read /hello failed: {err}"),
-            }
         }
         Err(err) => eprintln!("failed to mount root filesystem: {err}"),
     }

@@ -4,7 +4,7 @@
 //! 子页表组成，后续用于进程地址空间的构建与切换。
 //!
 //! 三张页表按 Sv39 的 V2/V1/V0 三级寻址组织：`root` 存 V2 分量，level-1 页表存
-//! V1 分量，level-0 页表存 V0 分量并存放实际数据帧的叶项。中间页表用 [`PageObject`]
+//! V1 分量，level-0 页表存 V0 分量并存放实际数据帧的叶项。中间页表用 [`Handle`]
 //! 从伙伴系统分配并以自身物理页号（PPN）为键存入 [`AddressSpace::children`]。
 use alloc::collections::BTreeMap;
 use core::{arch::asm, fmt::Debug};
@@ -12,29 +12,28 @@ use core::{arch::asm, fmt::Debug};
 use goethite_config::{KERNEL_PTE_START, PAGE_TABLE_SIZE};
 use goethite_macros::lazy;
 use goethite_riscv64::{
-    addr::{PhysicalAddr, VirtualAddr},
+    addr::{GetVPN, PhysicalAddr, VPN, VirtualAddr},
     registers::{
         csr::Satp,
         values::{SatpMode, SatpValue},
     },
 };
-use goethite_riscv64::addr::{GetVPN, VPN};
+
 use crate::{
     mm::{
-        object::{AllocError, Init, PageObject},
-        page_table::{PageTable, PageTableEntry, PageTableEntryFlags},
+        object::{AllocError, Handle, Init},
+        page_table::{PageTable, PageTableEntry, PageTableEntryFlags, PageTableLevel},
     },
     proc::TaskGroupId,
 };
-use crate::mm::page_table::PageTableLevel;
 
 /// 一个内存地址空间：根页表 + 子页表集合。
 #[derive(Debug)]
 pub struct AddressSpace {
     /// 根页表，映射地址空间的顶层。
-    pub root: PageObject<PageTable, Init>,
+    pub root: Handle<PageTable, Init>,
     /// 中间页表（level-1 / level-0），以自身的物理页号（PPN）为键。
-    pub children: BTreeMap<usize, PageObject<PageTable, Init>>,
+    pub children: BTreeMap<usize, Handle<PageTable, Init>>,
 }
 
 impl AddressSpace {
@@ -47,7 +46,7 @@ impl AddressSpace {
 
     /// 同上，但根页表分配失败时返回 [`AllocError`] 而不是 panic。
     pub fn try_new() -> Result<Self, AllocError> {
-        let root = PageObject::alloc()?.init(PageTable::new());
+        let root = Handle::alloc()?.init(PageTable::new());
         Ok(Self {
             root,
             children: BTreeMap::new(),
@@ -77,7 +76,7 @@ impl AddressSpace {
         let pt1_key = {
             let pte2 = &mut self.root.entries[vpn2];
             if !pte2.validate() {
-                let new_pt = PageObject::alloc()?.init(PageTable::new());
+                let new_pt = Handle::alloc()?.init(PageTable::new());
                 let addr = new_pt.get().as_phys_addr();
                 pte2.set_ppn(addr.ppn() as u64);
                 pte2.set_validate(true);
@@ -95,7 +94,7 @@ impl AddressSpace {
                 !pt1.entries[vpn1].validate()
             };
             if need_create {
-                let new_pt = PageObject::alloc()?.init(PageTable::new());
+                let new_pt = Handle::alloc()?.init(PageTable::new());
                 let addr = new_pt.get().as_phys_addr();
                 {
                     let pt1 = self
@@ -168,7 +167,7 @@ impl AddressSpace {
         let pte0 = &mut pt0.entries[vpn0];
         *pte0 = PageTableEntry::new();
     }
-    
+
     /// 通过虚拟地址 `va` 获取对应的叶页表项（只读）。
     ///
     /// 沿 V2/V1/V0 逐级下行；仅当沿途中间页表项有效且对应页表存在时返回
@@ -244,7 +243,6 @@ impl AddressSpace {
 
         aspace
     }
-
 
     pub fn copy_from_kernel(&mut self, other: &Self) {
         for i in KERNEL_PTE_START..PAGE_TABLE_SIZE {

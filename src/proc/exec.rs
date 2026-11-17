@@ -17,7 +17,7 @@ use goethite_riscv64::addr::VirtualAddr;
 
 use crate::{
     mm::page_table::PageTableEntryFlags,
-    proc::vma::{LoadSegment, MemorySet, MemsetError, Vma, VmaKind},
+    proc::vma::{LoadSegment, MemSetError, MemorySet, Vma, VmaKind},
 };
 
 /// ELF 加载可能出现的错误。
@@ -28,7 +28,7 @@ pub enum ExecError {
     Elf(#[from] ElfError),
     /// 地址空间构建失败（物理帧分配或页表映射）。
     #[error(transparent)]
-    Memset(#[from] MemsetError),
+    MemSet(#[from] MemSetError),
     /// ELF 中没有任何 `PT_LOAD` 段。
     #[error("no loadable segment in ELF")]
     NoLoadableSegment,
@@ -89,7 +89,7 @@ pub struct LoadedImage {
 /// - [`ExecError::ProgramHeaderOutOfBounds`] / [`ExecError::SegmentOutOfBounds`]：
 ///   程序头表或段数据越出缓冲区。
 /// - [`ExecError::InvalidSegment`]：`p_filesz > p_memsz`。
-/// - [`ExecError::Memset`]：物理帧分配或页表映射失败。
+/// - [`ExecError::MemSet`]：物理帧分配或页表映射失败。
 pub fn load_elf(buffer: &[u8]) -> Result<LoadedImage, ExecError> {
     let header = ElfHeader::try_from(buffer)?;
     header.validate()?;

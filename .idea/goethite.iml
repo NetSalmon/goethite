@@ -21,6 +21,9 @@
       <sourceFolder url="file://$MODULE_DIR$/goethite-userland/src" isTestSource="false" />
       <sourceFolder url="file://$MODULE_DIR$/crates/goethite-hardware-abstruct/src" isTestSource="false" />
       <sourceFolder url="file://$MODULE_DIR$/crates/goethite-mem-handle/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/crates/goethite-riscv64-asm/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/crates/goethite-riscv64-asm/tests" isTestSource="true" />
+      <sourceFolder url="file://$MODULE_DIR$/crates/goethite-stack/tests" isTestSource="true" />
       <excludeFolder url="file://$MODULE_DIR$/target" />
     </content>
     <orderEntry type="inheritedJdk" />

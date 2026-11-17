@@ -212,6 +212,13 @@ impl<'a> QueuesReady<'a> {
         Ok(())
     }
 
+    /// 已配置、尚未置 `DRIVER_OK` 的队列。
+    ///
+    /// 调用方在 [`finish`](Self::finish) 之前填充接收缓冲。
+    pub(crate) fn queues_mut(&mut self) -> &mut [VirtQueue] {
+        &mut self.queues
+    }
+
     /// 置位 DRIVER_OK 并交出已配置的队列。
     pub fn finish(self) -> Vec<VirtQueue> {
         let mut status: DeviceStatus = self.cfg.status().into();

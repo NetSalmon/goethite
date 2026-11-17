@@ -10,8 +10,8 @@
 use crate::{
     error::Error,
     raw::{
-        HEADER_SIZE, Header, PAIR_SIZE, Pair, STRING_ID_SIZE, STRING_REF_SIZE, StringId, StringRef,
-        le32,
+        AUX_ENTRY_SIZE, AuxEntry, HEADER_SIZE, Header, PAIR_SIZE, Pair, STRING_ID_SIZE,
+        STRING_REF_SIZE, StringId, StringRef, le32,
     },
 };
 
@@ -21,7 +21,7 @@ pub struct StackRef<'a> {
     header: Header,
     string_table: &'a [StringRef],
     envp: &'a [Pair],
-    auxv: &'a [Pair],
+    auxv: &'a [AuxEntry],
     argv: &'a [StringId],
     pool: &'a [u8],
 }
@@ -90,7 +90,7 @@ impl<'a> StackRef<'a> {
         if envp_bytes.len() % PAIR_SIZE != 0 {
             return Err(Error::Misaligned { region: "envp" });
         }
-        if auxv_bytes.len() % PAIR_SIZE != 0 {
+        if auxv_bytes.len() % AUX_ENTRY_SIZE != 0 {
             return Err(Error::Misaligned { region: "auxv" });
         }
         if argv_bytes.len() % STRING_ID_SIZE != 0 {
@@ -106,7 +106,7 @@ impl<'a> StackRef<'a> {
         if !is_aligned(bytes.as_ptr(), envp_offset, PAIR_SIZE) {
             return Err(Error::Misaligned { region: "envp" });
         }
-        if !is_aligned(bytes.as_ptr(), auxv_offset, PAIR_SIZE) {
+        if !is_aligned(bytes.as_ptr(), auxv_offset, core::mem::align_of::<AuxEntry>()) {
             return Err(Error::Misaligned { region: "auxv" });
         }
         if !is_aligned(bytes.as_ptr(), argv_offset, STRING_ID_SIZE) {
@@ -127,8 +127,8 @@ impl<'a> StackRef<'a> {
         };
         let auxv = unsafe {
             core::slice::from_raw_parts(
-                bytes.as_ptr().add(auxv_offset) as *const Pair,
-                auxv_bytes.len() / PAIR_SIZE,
+                bytes.as_ptr().add(auxv_offset) as *const AuxEntry,
+                auxv_bytes.len() / AUX_ENTRY_SIZE,
             )
         };
         let argv = unsafe {
@@ -174,8 +174,13 @@ impl<'a> StackRef<'a> {
     }
 
     /// 辅助向量表。
-    pub fn auxv_table(&self) -> &'a [Pair] {
+    pub fn auxv_table(&self) -> &'a [AuxEntry] {
         self.auxv
+    }
+
+    /// 查找指定编号的辅助向量值。若存在多个，返回首次匹配的值。
+    pub fn find_aux(&self, key: u64) -> Option<u64> {
+        self.auxv.iter().find(|e| e.key == key).map(|e| e.value)
     }
 
     /// 参数表（`StringId` 列表）。
@@ -240,15 +245,10 @@ impl<'a> StackRef<'a> {
         }
     }
 
-    /// 迭代 `auxv`，产出 `(&str, &str)`。
+    /// 迭代 `auxv`，产出 `(u64, u64)`。
     pub fn auxv(&self) -> AuxvIter<'a> {
-        let auxv: &'a [Pair] = self.auxv;
-        let table: &'a [StringRef] = self.string_table;
-        let pool: &'a [u8] = self.pool;
         AuxvIter {
-            inner: auxv.iter(),
-            table,
-            pool,
+            inner: self.auxv.iter(),
         }
     }
 
@@ -276,15 +276,10 @@ impl<'a> StackRef<'a> {
         }
     }
 
-    /// 迭代 `auxv`，产出 `Result<(&str, &str), Error>`（安全变体）。
+    /// 迭代 `auxv`，产出 `Result<(u64, u64), Error>`（安全变体）。
     pub fn try_auxv(&self) -> TryAuxvIter<'a> {
-        let auxv: &'a [Pair] = self.auxv;
-        let table: &'a [StringRef] = self.string_table;
-        let pool: &'a [u8] = self.pool;
         TryAuxvIter {
-            inner: auxv.iter(),
-            table,
-            pool,
+            inner: self.auxv.iter(),
         }
     }
 }
@@ -327,13 +322,35 @@ pub struct EnvIter<'a> {
     pool: &'a [u8],
 }
 
-/// `auxv` 的迭代器，产出 `(&'a str, &'a str)`。
+/// `auxv` 的迭代器，产出 `(u64, u64)`。
 #[derive(Clone, Debug)]
 pub struct AuxvIter<'a> {
-    inner: core::slice::Iter<'a, Pair>,
-    table: &'a [StringRef],
-    pool: &'a [u8],
+    inner: core::slice::Iter<'a, AuxEntry>,
 }
+
+impl<'a> Iterator for AuxvIter<'a> {
+    type Item = (u64, u64);
+
+    #[inline]
+    fn next(&mut self) -> Option<Self::Item> {
+        self.inner.next().map(|e| (e.key, e.value))
+    }
+}
+
+impl<'a> DoubleEndedIterator for AuxvIter<'a> {
+    #[inline]
+    fn next_back(&mut self) -> Option<Self::Item> {
+        self.inner.next_back().map(|e| (e.key, e.value))
+    }
+}
+
+impl<'a> ExactSizeIterator for AuxvIter<'a> {
+    fn len(&self) -> usize {
+        self.inner.len()
+    }
+}
+
+impl<'a> core::iter::FusedIterator for AuxvIter<'a> {}
 
 /// `argv` 的安全迭代器，产出 `Result<&'a str, Error>`。
 #[derive(Clone, Debug)]
@@ -351,13 +368,35 @@ pub struct TryEnvIter<'a> {
     pool: &'a [u8],
 }
 
-/// `auxv` 的安全迭代器，产出 `Result<(&'a str, &'a str), Error>`。
+/// `auxv` 的安全迭代器，产出 `Result<(u64, u64), Error>`。
 #[derive(Clone, Debug)]
 pub struct TryAuxvIter<'a> {
-    inner: core::slice::Iter<'a, Pair>,
-    table: &'a [StringRef],
-    pool: &'a [u8],
+    inner: core::slice::Iter<'a, AuxEntry>,
 }
+
+impl<'a> Iterator for TryAuxvIter<'a> {
+    type Item = Result<(u64, u64), Error>;
+
+    #[inline]
+    fn next(&mut self) -> Option<Self::Item> {
+        self.inner.next().map(|e| Ok((e.key, e.value)))
+    }
+}
+
+impl<'a> DoubleEndedIterator for TryAuxvIter<'a> {
+    #[inline]
+    fn next_back(&mut self) -> Option<Self::Item> {
+        self.inner.next_back().map(|e| Ok((e.key, e.value)))
+    }
+}
+
+impl<'a> ExactSizeIterator for TryAuxvIter<'a> {
+    fn len(&self) -> usize {
+        self.inner.len()
+    }
+}
+
+impl<'a> core::iter::FusedIterator for TryAuxvIter<'a> {}
 
 macro_rules! impl_infallible_iter {
     ($name:ident, $item:ty, $resolve:expr) => {
@@ -397,12 +436,6 @@ impl_infallible_iter!(EnvIter, (&'a str, &'a str), |p: &Pair, table, pool| {
         lookup_str(table, pool, p.value),
     )
 });
-impl_infallible_iter!(AuxvIter, (&'a str, &'a str), |p: &Pair, table, pool| {
-    (
-        lookup_str(table, pool, p.key),
-        lookup_str(table, pool, p.value),
-    )
-});
 
 macro_rules! impl_fallible_iter {
     ($name:ident, $item:ty, $resolve:expr) => {
@@ -423,12 +456,6 @@ impl_fallible_iter!(TryArgsIter, &'a str, |id: &StringId, table, pool| {
     try_lookup(table, pool, *id)
 });
 impl_fallible_iter!(TryEnvIter, (&'a str, &'a str), |p: &Pair, table, pool| {
-    Ok((
-        try_lookup(table, pool, p.key)?,
-        try_lookup(table, pool, p.value)?,
-    ))
-});
-impl_fallible_iter!(TryAuxvIter, (&'a str, &'a str), |p: &Pair, table, pool| {
     Ok((
         try_lookup(table, pool, p.key)?,
         try_lookup(table, pool, p.value)?,

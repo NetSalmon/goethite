@@ -1,7 +1,7 @@
 //! virtio 虚拟队列。
 //!
 //! 包含描述符表、avail / used 环与对齐到页的 [`Queue`] 布局，以及队列初始化
-//! 逻辑。队列内存经 [`PageObject`] 从伙伴系统分配，得到的是内核高半区虚拟地址；
+//! 逻辑。队列内存经 [`Handle`] 从伙伴系统分配，得到的是内核高半区虚拟地址；
 //! 写入 virtio-mmio 寄存器时再转换为设备可识别的**物理**地址。
 use core::{
     ptr::addr_of,
@@ -14,7 +14,7 @@ use goethite_riscv64::addr::VirtualAddr;
 
 use crate::{
     device::DeviceError,
-    mm::object::{Init, PageObject, Uninit},
+    mm::object::{Handle, Init, Uninit},
 };
 
 /// `Flags` 访问 / 写入以 `u16` 存储，与 virtio 规范一致。
@@ -77,13 +77,13 @@ impl Queue {
 
 /// 一段从伙伴系统分配、按 [`Queue`] 解释的虚拟队列内存。
 pub struct VirtQueue {
-    mem: PageObject<Queue, Init>,
+    mem: Handle<Queue, Init>,
 }
 
 impl VirtQueue {
     /// 分配并清零一个虚拟队列。
     pub fn new() -> Result<Self, DeviceError> {
-        let uninit = PageObject::<Queue, Uninit>::alloc().map_err(|_| DeviceError::AllocFailed)?;
+        let uninit = Handle::<Queue, Uninit>::alloc().map_err(|_| DeviceError::AllocFailed)?;
         Ok(Self {
             mem: uninit.init(Queue::zeroed()),
         })

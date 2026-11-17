@@ -10,6 +10,7 @@
       <w>minix</w>
       <w>mmio</w>
       <w>paddr</w>
+      <w>plic</w>
       <w>ramfb</w>
       <w>riscv</w>
       <w>rustflags</w>

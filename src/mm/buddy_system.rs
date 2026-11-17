@@ -33,7 +33,7 @@ impl<const MAX_ORDER: usize> BuddyAllocator<MAX_ORDER> {
         }
     }
 
-    fn add_frame(&mut self, start: usize, end: usize) {
+    pub fn add_frame(&mut self, start: usize, end: usize) {
         let mut current = start;
         for order in (0..MAX_ORDER).rev() {
             if current >= end {

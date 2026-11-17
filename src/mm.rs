@@ -6,7 +6,8 @@
 //! - [`slub`]：SLUB 风格的对象缓存，作为内核堆（`#[global_allocator]`）。
 //! - [`page_table`]：Sv39 页表项（[`page_table::PageTableEntry`]）与页表。
 //! - [`address_space`]：由一个根页表 + 多个子页表组成的内存地址空间。
-//! - [`object`]：堆上分配、自动释放的内存对象（[`object::PageObject`]）。
+//! - [`object`]：堆上分配、自动释放的内存对象（[`object::Handle`] /
+//!   [`object::RefHandle`]）。
 
 pub mod address_space;
 pub mod alloc;
@@ -15,3 +16,4 @@ pub mod object;
 pub mod page_table;
 pub mod region;
 pub mod slub;
+pub mod stack;

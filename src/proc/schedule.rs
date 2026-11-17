@@ -2,10 +2,16 @@
 
 use alloc::collections::{BTreeMap, VecDeque};
 use core::arch::naked_asm;
+
 use goethite_macros::lazy;
 use goethite_riscv64::registers::csr::{Sscratch, Stvec};
 
-use crate::{proc::{CURRENT_TASK, Task, TaskId, TaskStatus}, trap::entry::__user_trap_entry, KERNEL_STACK_SIZE};
+use crate::{
+    KERNEL_STACK_SIZE,
+    mm::stack::Stack,
+    proc::{CURRENT_TASK, Task, TaskId, TaskStatus},
+    trap::entry::__user_trap_entry,
+};
 
 #[lazy(spin)]
 pub static SCHEDULER: Scheduler = Scheduler::new();
@@ -106,17 +112,23 @@ impl Scheduler {
         // 进入用户态前准备好陷阱现场：
         // - `sscratch` 保存内核栈顶，供 `__user_trap_entry` 与用户 sp 交换；
         // - `stvec` 指向用户态陷阱入口，使下一次用户陷入被识别为用户陷阱。
-        let kernel_stack_top = crate::KERNEL_STACK.as_ptr() as usize + crate::KERNEL_STACK_SIZE;
+        let kernel_stack_top = crate::KERNEL_STACK.as_ptr() as usize + KERNEL_STACK_SIZE;
         Sscratch::write(kernel_stack_top as u64);
         Stvec::write(__user_trap_entry as *const () as u64);
 
         context.restore()
     }
+
+    pub fn run(&mut self) {
+        loop {
+            let tid = self.next();
+            self.restore(tid);
+        }
+    }
 }
 
-#[unsafe(link_section = ".bss.__scheduler_stack")]
-#[unsafe(export_name = "__scheduler_stack")]
-pub static SCHEDULER_STACK: [u8; KERNEL_STACK_SIZE] = [0; KERNEL_STACK_SIZE];
+#[lazy]
+pub static SCHEDULER_STACK: Stack = Stack::new();
 
 impl Default for Scheduler {
     fn default() -> Self {
