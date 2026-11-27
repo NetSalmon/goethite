@@ -4,7 +4,7 @@
 //!
 //! - **虚拟布局**：一个按虚拟地址抽象的 [`Vma`] 列表，描述进程期望看到的地址范围、
 //!   权限与类型（代码/数据/BSS/栈/堆/mmap）。这是进程内存的「第一公民」。
-//! - **活动页表**：由 [`crate::mm::address_space::ASpaceManager`] 集中管理的
+//! - **活动页表**：由 [`crate::mm::address_space::AddressSpaceManager`] 集中管理的
 //!   [`crate::mm::address_space::AddressSpace`]。`MemSet` **不直接持有**页表，只保存进程
 //!   id（[`TaskGroupId`]），所有映射 / 切换操作都经由管理器委托。
 //!
@@ -25,7 +25,7 @@ use goethite_riscv64::addr::VirtualAddr;
 
 use crate::{
     mm::{
-        address_space::{AS_MANAGER, ASpaceError},
+        address_space::{ADDRESS_SPACE_MANAGER, AddressSpaceError},
         buddy_system::order_size,
         object::AllocError,
         page_table::PageTableEntryFlags,
@@ -127,13 +127,13 @@ pub struct LoadSegment {
 
 /// [`MemorySet`] 操作可能出现的错误。
 #[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
-pub enum MemSetError {
+pub enum MemorySetError {
     /// 底层分配失败。
     #[error(transparent)]
     Alloc(AllocError),
     /// 地址空间管理器操作失败（如引用了不存在的 [`TaskGroupId`]）。
     #[error(transparent)]
-    As(ASpaceError),
+    AddressSpace(AddressSpaceError),
     /// 进程 id（tgid）已用尽。
     #[error("task group id exhausted")]
     IdExhausted,
@@ -142,15 +142,15 @@ pub enum MemSetError {
     Unmapped,
 }
 
-impl From<AllocError> for MemSetError {
+impl From<AllocError> for MemorySetError {
     fn from(e: AllocError) -> Self {
-        MemSetError::Alloc(e)
+        MemorySetError::Alloc(e)
     }
 }
 
-impl From<ASpaceError> for MemSetError {
-    fn from(e: ASpaceError) -> Self {
-        MemSetError::As(e)
+impl From<AddressSpaceError> for MemorySetError {
+    fn from(e: AddressSpaceError) -> Self {
+        MemorySetError::AddressSpace(e)
     }
 }
 
@@ -165,11 +165,11 @@ pub struct MemorySet {
 impl MemorySet {
     /// 创建一个新进程的内存集合：分配一个进程 id（tgid），并在地址空间管理器中
     /// 为其关联一个新的空地址空间。
-    pub fn new() -> Result<Self, MemSetError> {
-        let tgid = alloc_tgid().ok_or(MemSetError::IdExhausted)?;
-        if let Err(e) = AS_MANAGER.write().alloc(tgid) {
+    pub fn new() -> Result<Self, MemorySetError> {
+        let tgid = alloc_tgid().ok_or(MemorySetError::IdExhausted)?;
+        if let Err(e) = ADDRESS_SPACE_MANAGER.write().alloc(tgid) {
             free_tgid(tgid);
-            return Err(MemSetError::As(e));
+            return Err(MemorySetError::AddressSpace(e));
         }
         Ok(Self {
             vmas: Vec::new(),
@@ -180,7 +180,7 @@ impl MemorySet {
     /// 由一段段加载段描述符构建内存集合。
     ///
     /// 每段都会被分配物理帧、映射进页表并登记为对应的 [`Vma`]。
-    pub fn with_segments(segments: &[LoadSegment]) -> Result<Self, MemSetError> {
+    pub fn with_segments(segments: &[LoadSegment]) -> Result<Self, MemorySetError> {
         let mut ms = MemorySet::new()?;
         for seg in segments {
             ms.add_region(seg.vaddr, seg.memsz, seg.perms, seg.kind, seg.file_offset)?;
@@ -202,7 +202,7 @@ impl MemorySet {
         perms: PageTableEntryFlags,
         kind: VmaKind,
         file_offset: usize,
-    ) -> Result<(), MemSetError> {
+    ) -> Result<(), MemorySetError> {
         let total = align(len.max(1), PAGE_SIZE);
         let backing = self.alloc_and_map(vaddr, total, perms)?;
         self.vmas.push(Vma {
@@ -223,25 +223,25 @@ impl MemorySet {
         len: usize,
         perms: PageTableEntryFlags,
         kind: VmaKind,
-    ) -> Result<(), MemSetError> {
+    ) -> Result<(), MemorySetError> {
         self.add_region(vaddr, len, perms, kind, 0)
     }
 
     /// 按 2 的幂次块贪心分配并映射 `/span/` 字节的物理帧，返回登记好的后备块列表。
     ///
     /// 任何一次分配失败都会先把已映射的块 `unmap` 掉再返回错误，避免页表残留指向
-    /// 已归还帧的指针。映射操作经由 [`AS_MANAGER`] 委托给对应地址空间。
+    /// 已归还帧的指针。映射操作经由 [`ADDRESS_SPACE_MANAGER`] 委托给对应地址空间。
     fn alloc_and_map(
         &mut self,
         mut vaddr: VirtualAddr,
         span: usize,
         perms: PageTableEntryFlags,
-    ) -> Result<Vec<MappedRegion>, MemSetError> {
+    ) -> Result<Vec<MappedRegion>, MemorySetError> {
         let total = align(span.max(1), PAGE_SIZE);
         let mut remaining = total;
         let mut backing: Vec<MappedRegion> = Vec::new();
 
-        let mut mgr = AS_MANAGER.write();
+        let mut mgr = ADDRESS_SPACE_MANAGER.write();
 
         while remaining > 0 {
             let pages = remaining / PAGE_SIZE;
@@ -255,7 +255,7 @@ impl MemorySet {
                     for mr in &backing {
                         mgr.unmap(self.tgid, mr.vaddr).ok();
                     }
-                    return Err(MemSetError::Alloc(AllocError::OutOfMemory));
+                    return Err(MemorySetError::Alloc(AllocError::OutOfMemory));
                 }
             };
             let pa = region.as_phys_addr();
@@ -264,7 +264,7 @@ impl MemorySet {
                 for mr in &backing {
                     mgr.unmap(self.tgid, mr.vaddr).ok();
                 }
-                return Err(MemSetError::As(e));
+                return Err(MemorySetError::AddressSpace(e));
             }
 
             backing.push(MappedRegion { region, vaddr });
@@ -284,8 +284,8 @@ impl MemorySet {
     /// 处理一次缺页：优先处理栈向低地址增长，随后在覆盖该地址的 VMA 内按需映射缺失页。
     ///
     /// 对于已映射的页直接返回（权限类缺页由上层另行判定）；对未被任何 VMA 覆盖的
-    /// 地址返回 [`MemSetError::Unmapped`]。
-    pub fn handle_page_fault(&mut self, fault_addr: VirtualAddr) -> Result<(), MemSetError> {
+    /// 地址返回 [`MemorySetError::Unmapped`]。
+    pub fn handle_page_fault(&mut self, fault_addr: VirtualAddr) -> Result<(), MemorySetError> {
         let fault = usize::from(fault_addr);
         let page = align(fault, PAGE_SIZE);
 
@@ -299,7 +299,7 @@ impl MemorySet {
 
         let idx = match self.vmas.iter().position(|v| v.covers(page)) {
             Some(i) => i,
-            None => return Err(MemSetError::Unmapped),
+            None => return Err(MemorySetError::Unmapped),
         };
 
         let va = VirtualAddr::from(page);
@@ -311,7 +311,7 @@ impl MemorySet {
     }
 
     /// 把单个缺失页分配并映射到指定 VMA，并登记进其 `backing`。
-    fn map_page_to(&mut self, idx: usize, page: VirtualAddr) -> Result<(), MemSetError> {
+    fn map_page_to(&mut self, idx: usize, page: VirtualAddr) -> Result<(), MemorySetError> {
         let perms = self.vmas[idx].perms;
         let mut new_backing = self.alloc_and_map(page, PAGE_SIZE, perms)?;
         self.vmas[idx].backing.append(&mut new_backing);
@@ -319,12 +319,12 @@ impl MemorySet {
     }
 
     /// 扩展栈：把栈 VMA 的起点下移到 `new_start`，并映射新增的披露范围。
-    pub fn grow_stack(&mut self, new_start: VirtualAddr) -> Result<(), MemSetError> {
+    pub fn grow_stack(&mut self, new_start: VirtualAddr) -> Result<(), MemorySetError> {
         let idx = self
             .vmas
             .iter()
             .position(|v| v.kind == VmaKind::Stack)
-            .ok_or(MemSetError::Unmapped)?;
+            .ok_or(MemorySetError::Unmapped)?;
 
         let cur_start = usize::from(self.vmas[idx].vaddr);
         let new_start_u = usize::from(new_start);
@@ -346,12 +346,12 @@ impl MemorySet {
     /// 扩展堆：把堆 VMA 的末端上移到 `new_brk`，并映射新增范围。
     ///
     /// 只支持增长；收缩（释放多出的帧）留给调用方在确定不再需要时自行 `unmap` 处理。
-    pub fn set_brk(&mut self, new_brk: VirtualAddr) -> Result<(), MemSetError> {
+    pub fn set_brk(&mut self, new_brk: VirtualAddr) -> Result<(), MemorySetError> {
         let idx = self
             .vmas
             .iter()
             .position(|v| v.kind == VmaKind::Heap)
-            .ok_or(MemSetError::Unmapped)?;
+            .ok_or(MemorySetError::Unmapped)?;
 
         let cur_end = usize::from(self.vmas[idx].vaddr) + self.vmas[idx].len;
         let new_end = usize::from(new_brk);
@@ -370,13 +370,21 @@ impl MemorySet {
         Ok(())
     }
 
+    /// 获取本进程地址空间对应的 SATP 寄存器值。
+    pub fn satp(&self) -> u64 {
+        ADDRESS_SPACE_MANAGER
+            .read()
+            .satp(self.tgid)
+            .expect("tgid address space must exist")
+    }
+
     /// 经由地址空间管理器激活本进程的地址空间（写入 SATP 并刷新 TLB）。
     ///
     /// # Safety
     ///
     /// 调用方需保证处理好切换地址空间带来的地址冲突风险。
-    pub unsafe fn activate(&self) -> Result<(), MemSetError> {
-        unsafe { AS_MANAGER.read().activate(self.tgid) }?;
+    pub unsafe fn activate(&self) -> Result<(), MemorySetError> {
+        unsafe { ADDRESS_SPACE_MANAGER.read().activate(self.tgid) }?;
         Ok(())
     }
 }
@@ -386,10 +394,10 @@ impl Drop for MemorySet {
     /// 归还所有后备物理帧。
     ///
     /// 注意：这假定地址空间与进程一一对应。若将来引入 fork / COW 共享地址空间，
-    /// 应改为在 [`ASpaceManager`](crate::mm::address_space::ASpaceManager) 中做引用
+    /// 应改为在 [`AddressSpaceManager`](crate::mm::address_space::AddressSpaceManager) 中做引用
     /// 计数，而不要在此直接 `free`。
     fn drop(&mut self) {
-        AS_MANAGER.write().free(self.tgid);
+        ADDRESS_SPACE_MANAGER.write().free(self.tgid);
         free_tgid(self.tgid);
     }
 }

@@ -1,0 +1,17 @@
+[package]
+name = "goethite-sync"
+version = "0.1.0"
+edition = "2024"
+license = "GPL-3.0-or-later"
+
+[lib]
+test = false
+bench = false
+doctest = false
+
+[features]
+qemu-tests = ["dep:goethite-test"]
+
+[dependencies]
+goethite-riscv64 = { path = "../riscv64" }
+goethite-test = { path = "../test", optional = true }

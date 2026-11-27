@@ -1,0 +1,13 @@
+[package]
+name = "goethite-syscall"
+version = "0.1.0"
+edition = "2024"
+
+[lib]
+test = false
+bench = false
+doctest = false
+
+[dependencies]
+goethite-abi = { path = "../abi" }
+goethite-riscv64 = { path = "../riscv64" }

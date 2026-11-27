@@ -5,3 +5,8 @@ target = "riscv64gc-unknown-none-elf"
 rustflags = [
     "-Cforce-frame-pointers=yes",
 ]
+
+[alias]
+# 统一测试入口：宿主机纯逻辑测试 + QEMU 硬件相关测试。
+# 用法见 xtask/src/main.rs 或运行 `cargo xtest --help`。
+xtest = "run --quiet --target x86_64-unknown-linux-gnu --target-dir target/xtask --manifest-path xtask/Cargo.toml --"

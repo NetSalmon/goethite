@@ -34,7 +34,7 @@ mounted minix v1 root filesystem
 breakpoint at ...
 ```
 
-这些结果证明启动和文件读取链路可运行；用户态、抢占调度、文件系统写入尚未据此验证。源码中未发现 `#[test]` 单元测试，本次未执行自动化测试套件。
+这些结果证明启动和文件读取链路可运行；用户态、抢占调度、文件系统写入尚未据此验证。自动化测试覆盖见下方“测试框架增量”。
 
 ## 建议接续顺序
 
@@ -95,3 +95,26 @@ BSS/栈、串口输出、FDT 内存读取和致命异常处理入口。当前 MM
 ready 标记，发布版额外核对固件入口 EL1/EL2；`cargo build --workspace`
 通过（保留现有未使用项警告）。RISC-V 使用本机 MINIX 镜像的快照启动，
 达到根文件系统挂载及原有 breakpoint；该镜像的 `/hello` 为二进制内容。
+
+## 测试框架增量（2026-11-18）
+
+新增统一测试入口 `cargo xtest`（`xtask/` 独立 workspace，别名见
+`.cargo/config.toml`），按运行环境分成两层：
+
+- **宿主机层**：纯逻辑 crate 的 `tests/*.rs` 使用标准 `#[test]`，在
+  `x86_64-unknown-linux-gnu` 上运行。已覆盖 `goethite-abi`、`goethite-bitmap`、
+  `goethite-config`、`goethite-elf`、`goethite-fs`、`goethite-id-alloc`、
+  `goethite-intrusive-list`、`goethite-macros`、`goethite-macros-impl`、
+  `goethite-minix`、`goethite-riscv64`、`goethite-riscv64-asm`、
+  `goethite-stack`、`goethite-sync`。为支持宿主机编译，`goethite-riscv64`
+  在非 RISC-V 目标下提供寄存器 / CSR 数值桩。
+- **QEMU 层**：`goethite-test`（`no_std` 测试框架）负责注册、断言和汇总；
+  `goethite-test-kernel` 在 QEMU virt 上运行 `goethite-riscv64`、
+  `goethite-sync`、`goethite-stdio` 的 `qemu-tests` 套件，经 SiFive test
+  finisher 退出并返回真实退出码。汇总行格式为
+  `GOETHITE_TEST_SUMMARY passed=N failed=M`。
+
+当前验证结果：`cargo xtest host` 与 `cargo xtest qemu` 均通过（宿主机 14 个
+crate、QEMU 11 项测试）；`cargo check --workspace` 在默认 RISC-V 目标下通过。
+`goethite-syscall` / `goethite-userland` 需要陷阱或用户态执行环境，尚未接入
+自动化测试，是后续建立用户态验收时的一并工作。使用方法见 README 的“测试”节。

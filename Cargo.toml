@@ -10,18 +10,19 @@ readme = "README.md"
 fdt = "0.2.0-alpha2"
 
 [target.'cfg(target_arch = "riscv64")'.dependencies]
-goethite-macros = { path = "crates/goethite-macros" }
-goethite-riscv64 = { path = "crates/goethite-riscv64" }
-goethite-riscv64-asm = { path = "crates/goethite-riscv64-asm" }
-goethite-sync = { path = "crates/goethite-sync" }
-goethite-config = { path = "crates/goethite-config" }
-goethite-id-alloc = { path = "crates/goethite-id-alloc" }
-goethite-intrusive-list = { path = "crates/goethite-intrusive-list" }
-goethite-stdio = { path = "crates/goethite-stdio" }
-goethite-abi = { path = "crates/goethite-abi" }
-goethite-fs = { path = "crates/goethite-fs" }
-goethite-minix = { path = "crates/goethite-minix" }
-goethite-elf = { path = "crates/goethite-elf" }
+goethite-macros = { path = "crates/macros" }
+goethite-riscv64 = { path = "crates/riscv64" }
+goethite-riscv64-asm = { path = "crates/riscv64-asm" }
+goethite-sync = { path = "crates/sync" }
+goethite-config = { path = "crates/config" }
+goethite-id-alloc = { path = "crates/id-alloc" }
+goethite-intrusive-list = { path = "crates/intrusive-list" }
+goethite-console = { path = "crates/console" }
+goethite-abi = { path = "crates/abi" }
+goethite-fs = { path = "crates/fs" }
+goethite-minix = { path = "crates/minix" }
+goethite-elf = { path = "crates/elf" }
+goethite-stack = { path = "crates/stack" }
 paste = "1.0.15"
 thiserror = { version = "2.0.20", default-features = false }
 
@@ -34,7 +35,7 @@ bench = false
 [workspace]
 members = [
     "crates/*",
-    "goethite-userland"
+    "userland"
 ]
 
 [profile.dev]

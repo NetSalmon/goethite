@@ -1,0 +1,19 @@
+[package]
+name = "goethite-riscv64"
+version = "0.1.0"
+edition = "2024"
+license = "GPL-3.0-or-later"
+
+[lib]
+test = false
+bench = false
+doctest = false
+
+[features]
+qemu-tests = ["dep:goethite-test"]
+
+[dependencies]
+goethite-macros = { path = "../macros" }
+goethite-config = { path = "../config" }
+goethite-test = { path = "../test", optional = true }
+paste = "1.0.15"

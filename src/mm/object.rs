@@ -27,6 +27,10 @@
 //!   `T` 再归还页；该常量在编译期折叠，运行期无额外分支。
 //! - 分配时记录页块在伙伴系统中的阶数 `page_order`，析构时按阶归还，避免按字节
 //!   大小重复换算与阶数截断不一致。
+//! - [`clone`](Handle::clone) / [`copy`](Handle::copy) 只复制句柄结构体本身
+//!   （`ptr` + `page_order`），不复制页块内容。复制出的句柄**不拥有**页块，
+//!   析构时不会 drop `T` 或归还页，所有权仍留在原句柄上；因此它们标记为
+//!   `unsafe`，由调用方保证不会并发可变访问同一页块。
 //! - `RefHandle` 的引用计数存放在同一页块内、`T` 之后，使用原子操作增减：
 //!   克隆时 `Relaxed` 递增，析构时 `Release` 递减，最后一个句柄再以 `Acquire`
 //!   栅栏取得其他线程的写入。只有计数归零才 drop `T` 并归还页块。
@@ -94,6 +98,9 @@ pub struct Handle<T, S: State> {
     ptr: NonNull<MaybeUninit<T>>,
     /// 伙伴系统分配该页块时对应的阶数；页块字节数为 `PAGE_SIZE << page_order`。
     page_order: usize,
+    /// 是否拥有页块。只有拥有者析构时才 drop `T` 并归还页块；由
+    /// [`clone`](Handle::clone) / [`copy`](Handle::copy) 复制出的句柄不拥有页块。
+    owned: bool,
     /// 把状态标记 `S` 挂在类型上（零占用）。
     state: PhantomData<S>,
 }
@@ -124,6 +131,46 @@ impl<T, S: State> Handle<T, S> {
     /// 仅用于获取地址；调用方需保证不读写指针。
     pub unsafe fn as_ptr(&self) -> *const () {
         self.ptr.as_ptr() as *const ()
+    }
+
+    /// 复制句柄结构体本身（浅拷贝），**不**复制页块内容。
+    ///
+    /// 返回值只复制 `ptr` 与 `page_order`，与 `self` 指向同一页块，但**不拥有**
+    /// 该页块：析构时既不会 drop `T`，也不会把页块归还伙伴系统；所有权仍归
+    /// `self` 及其后续所有者。页块内容（`T`）在内存中只有一份，不会被复制。
+    ///
+    /// 未实现 [`Clone`]/[`Copy`] trait 的原因：`Handle` 的 [`Drop`] 会释放页块，
+    /// 浅拷贝后若两个句柄都按所有者处理就会重复释放；且二者共享同一块内存，
+    /// 同时做可变访问会违反别名规则。这些约束只能由调用方显式承担，故本方法
+    /// 是 `unsafe` 的，需要时也可调用 [`copy`](Handle::copy)（语义相同）。
+    /// 若需要 **安全地** 共享所有权，请改用 [`RefHandle`]。
+    /// 若需要 **安全地** 共享所有权，请改用 [`RefHandle`]。
+    ///
+    /// # Safety
+    ///
+    /// - 返回的句柄不拥有页块，不能借它转移或延长页块的生命周期；一旦 `self`
+    ///   被析构，返回值立即悬垂。
+    /// - 在返回值存活期间，不得与 `self`（或其它共享该页块的句柄）同时对同一
+    ///   `T` 做可变访问（[`get_mut`](Handle::get_mut) / [`DerefMut`] /
+    ///   [`set`](Handle::set)），只允许通过 [`as_ptr`](Handle::as_ptr) 读地址。
+    #[allow(clippy::should_implement_trait)]
+    pub unsafe fn clone(&self) -> Self {
+        Handle {
+            ptr: self.ptr,
+            page_order: self.page_order,
+            owned: false,
+            state: PhantomData,
+        }
+    }
+
+    /// [`clone`](Handle::clone) 的别名：复制句柄结构体本身，不复制页块内容。
+    ///
+    /// # Safety
+    ///
+    /// 与 [`clone`](Handle::clone) 相同。
+    pub unsafe fn copy(&self) -> Self {
+        // SAFETY: 由调用方按 `clone` 的约束保证。
+        unsafe { self.clone() }
     }
 }
 
@@ -169,6 +216,7 @@ impl<T> Handle<T, Uninit> {
         Ok(Handle {
             ptr: ptr.cast(),
             page_order,
+            owned: true,
             state: PhantomData,
         })
     }
@@ -182,6 +230,7 @@ impl<T> Handle<T, Uninit> {
         let initialized = Handle {
             ptr: self.ptr,
             page_order: self.page_order,
+            owned: self.owned,
             state: PhantomData,
         };
         // `initialized` 已接手掌管该页块，丢弃旧的 `Uninit` 外壳，避免其析构重复归还。
@@ -229,8 +278,13 @@ impl<T> DerefMut for Handle<T, Init> {
 impl<T, S: State> Drop for Handle<T, S> {
     /// 按状态决定是否先 drop `T`，再归还物理页。
     ///
-    /// `S::DROP_T` 为编译期常量，落到各状态上时条件分支会被消除。
+    /// `S::DROP_T` 为编译期常量，落到各状态上时条件分支会被消除。非拥有者
+    /// （由 [`clone`](Handle::clone) / [`copy`](Handle::copy) 复制出的句柄）
+    /// 析构时直接返回，既不会 drop `T` 也不会归还页块。
     fn drop(&mut self) {
+        if !self.owned {
+            return;
+        }
         if S::DROP_T {
             unsafe { core::ptr::drop_in_place(self.ptr.cast::<T>().as_ptr()) };
         }
@@ -238,10 +292,12 @@ impl<T, S: State> Drop for Handle<T, S> {
     }
 }
 
-// SAFETY: `PageObject` 只在初始化后的 `Init` 状态下暴露 `&T`/`&mut T`，且写入
+// SAFETY: `Handle` 只在初始化后的 `Init` 状态下暴露 `&T`/`&mut T`，且写入
 // （`init` / `set`）仍需独占访问，故 `T` 的写入与读取不可能并发。`Uninit` 状态
 // 根本不含 `T`，其析构只是归还页块。跨线程共享（`Sync`）各方只经 `&self` 读取已
-// 初始化部分。状态标记 `S` 是零大小的类型标签，不携带数据。
+// 初始化部分。状态标记 `S` 是零大小的类型标签，不携带数据。经 `clone` / `copy`
+// 复制出的非拥有句柄可能与原句柄共享同一页块，其别名约束由这两个 `unsafe` 方法
+// 的调用方负责。
 unsafe impl<T: Send, S: State + Send> Send for Handle<T, S> {}
 unsafe impl<T: Send + Sync, S: State + Sync> Sync for Handle<T, S> {}
 

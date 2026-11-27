@@ -5,14 +5,14 @@ use goethite_riscv64::{
     trap::{Exception, Interrupt, Trap},
 };
 use goethite_riscv64_asm::Encoded;
-use goethite_stdio::println;
+use goethite_console::println;
 
 use crate::{
     device::plic,
     proc::{CURRENT_TASK, schedule::SCHEDULER},
 };
 
-pub enum Todo {
+pub enum TrapAction {
     /// 写入 `a0`，并向后跳过 `skip` 条完整指令后继续执行。
     Return { value: u64, skip: u64 },
     /// 不修改返回值，并向后跳过 `skip` 条完整指令后继续执行。
@@ -45,11 +45,11 @@ pub fn trap_handler(sepc: u64, scause: i64, stval: u64, stvec: u64, sstatus: u64
 
     let context = unsafe { &mut *(sp as *mut Registers).offset(-1) };
 
-    let todo = match Trap::from(scause) {
+    let action = match Trap::from(scause) {
         Trap::Exception(ept) => match ept {
             Exception::BREAKPOINT => {
                 println!("breakpoint at {:#p}", sepc as *const ());
-                Todo::NoReturn { skip: 1 }
+                TrapAction::NoReturn { skip: 1 }
             }
             Exception::U_MODE_ECALL => {
                 todo!()
@@ -60,26 +60,26 @@ pub fn trap_handler(sepc: u64, scause: i64, stval: u64, stvec: u64, sstatus: u64
             Exception::STORE_PAGE_FAULT | Exception::LOAD_PAGE_FAULT => {
                 panic!("store page fault: {:#p}", sepc as *const ());
             }
-            _ => Todo::Discard,
+            _ => TrapAction::Discard,
         },
         Trap::Interrupt(int) => {
             // S 模式外部中断交由 PLIC 认领并分派给已登记的设备处理函数。
-            // 中断的 sepc 已指向被打断的指令，保持 `Todo::Discard` 即可原地返回。
+            // 中断的 sepc 已指向被打断的指令，保持 `TrapAction::Discard` 即可原地返回。
             if int == Interrupt::SUPERVISOR_EXTERNAL {
                 plic::handle_external_interrupt();
             }
-            Todo::Discard
+            TrapAction::Discard
         }
     };
 
-    let sepc = match todo {
-        Todo::Return { value, skip } => {
+    let sepc = match action {
+        TrapAction::Return { value, skip } => {
             context.a0 = value;
             unsafe { skip_instructions(sepc, skip) }
         }
-        Todo::NoReturn { skip } => unsafe { skip_instructions(sepc, skip) },
-        Todo::Yield => sepc,
-        Todo::Discard => sepc,
+        TrapAction::NoReturn { skip } => unsafe { skip_instructions(sepc, skip) },
+        TrapAction::Yield => sepc,
+        TrapAction::Discard => sepc,
     };
 
     Sepc::write(sepc);

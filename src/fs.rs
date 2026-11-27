@@ -20,7 +20,7 @@ use goethite_fs::{
     types::Mode,
     vfs::{FileSystem, OpenFlags, Vfs},
 };
-use goethite_minix::minix::{MinixFs, MinixVfs};
+use goethite_minix::{MinixFs, MinixVfs};
 use goethite_sync::RwLock;
 
 use crate::{

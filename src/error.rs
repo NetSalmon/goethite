@@ -3,10 +3,10 @@ use core::panic::PanicInfo;
 use fdt::FdtError;
 use goethite_fs::{device::IoError as FsIoError, error::FsError};
 use goethite_riscv64::sbi::srst::{ResetReason, ResetType};
-use goethite_stdio::eprintln;
+use goethite_console::eprintln;
 
 use crate::{
-    mm::{address_space::ASpaceError, object::AllocError},
+    mm::{address_space::AddressSpaceError, object::AllocError},
     proc::exec::ExecError,
 };
 
@@ -25,7 +25,7 @@ pub enum KernelError {
     #[error(transparent)]
     MemoryAllocError(#[from] AllocError),
     #[error(transparent)]
-    AddressSpaceError(#[from] ASpaceError),
+    AddressSpaceError(#[from] AddressSpaceError),
     /// 用户程序（ELF）加载错误。
     #[error(transparent)]
     ExecError(#[from] ExecError),

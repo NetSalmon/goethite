@@ -1,13 +1,13 @@
 use core::ptr::slice_from_raw_parts;
 
-use goethite_abi::{Fd, SysResult, Syscall, SyscallTrait};
+use goethite_abi::{Fd, SysResult, Syscall, SyscallOps};
 use goethite_riscv64::sbi::legacy::console_putchar;
 
 use crate::proc::Context;
 
 pub struct SyscallHandler;
 
-impl SyscallTrait for SyscallHandler {
+impl SyscallOps for SyscallHandler {
     fn open() -> SysResult<Fd> {
         todo!()
     }

@@ -24,6 +24,52 @@
       <sourceFolder url="file://$MODULE_DIR$/crates/goethite-riscv64-asm/src" isTestSource="false" />
       <sourceFolder url="file://$MODULE_DIR$/crates/goethite-riscv64-asm/tests" isTestSource="true" />
       <sourceFolder url="file://$MODULE_DIR$/crates/goethite-stack/tests" isTestSource="true" />
+      <sourceFolder url="file://$MODULE_DIR$/crates/goethite-abi/tests" isTestSource="true" />
+      <sourceFolder url="file://$MODULE_DIR$/crates/goethite-bitmap/tests" isTestSource="true" />
+      <sourceFolder url="file://$MODULE_DIR$/crates/goethite-config/tests" isTestSource="true" />
+      <sourceFolder url="file://$MODULE_DIR$/crates/goethite-elf/tests" isTestSource="true" />
+      <sourceFolder url="file://$MODULE_DIR$/crates/goethite-fs/tests" isTestSource="true" />
+      <sourceFolder url="file://$MODULE_DIR$/crates/goethite-id-alloc/tests" isTestSource="true" />
+      <sourceFolder url="file://$MODULE_DIR$/crates/goethite-intrusive-list/tests" isTestSource="true" />
+      <sourceFolder url="file://$MODULE_DIR$/crates/goethite-macros/tests" isTestSource="true" />
+      <sourceFolder url="file://$MODULE_DIR$/crates/goethite-minix/tests" isTestSource="true" />
+      <sourceFolder url="file://$MODULE_DIR$/crates/goethite-riscv64/tests" isTestSource="true" />
+      <sourceFolder url="file://$MODULE_DIR$/crates/goethite-sync/tests" isTestSource="true" />
+      <sourceFolder url="file://$MODULE_DIR$/crates/goethite-test-kernel/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/crates/goethite-test/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/crates/abi/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/crates/abi/tests" isTestSource="true" />
+      <sourceFolder url="file://$MODULE_DIR$/crates/bitmap/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/crates/bitmap/tests" isTestSource="true" />
+      <sourceFolder url="file://$MODULE_DIR$/crates/config/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/crates/config/tests" isTestSource="true" />
+      <sourceFolder url="file://$MODULE_DIR$/crates/console/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/crates/elf/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/crates/elf/tests" isTestSource="true" />
+      <sourceFolder url="file://$MODULE_DIR$/crates/fs/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/crates/fs/tests" isTestSource="true" />
+      <sourceFolder url="file://$MODULE_DIR$/crates/id-alloc/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/crates/id-alloc/tests" isTestSource="true" />
+      <sourceFolder url="file://$MODULE_DIR$/crates/intrusive-list/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/crates/intrusive-list/tests" isTestSource="true" />
+      <sourceFolder url="file://$MODULE_DIR$/crates/macros-impl/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/crates/macros/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/crates/macros/tests" isTestSource="true" />
+      <sourceFolder url="file://$MODULE_DIR$/crates/minix/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/crates/minix/tests" isTestSource="true" />
+      <sourceFolder url="file://$MODULE_DIR$/crates/riscv64-asm/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/crates/riscv64-asm/tests" isTestSource="true" />
+      <sourceFolder url="file://$MODULE_DIR$/crates/riscv64/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/crates/riscv64/tests" isTestSource="true" />
+      <sourceFolder url="file://$MODULE_DIR$/crates/stack/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/crates/stack/tests" isTestSource="true" />
+      <sourceFolder url="file://$MODULE_DIR$/crates/sync/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/crates/sync/tests" isTestSource="true" />
+      <sourceFolder url="file://$MODULE_DIR$/crates/syscall/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/crates/test-kernel/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/crates/test/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/crates/test/tests" isTestSource="true" />
+      <sourceFolder url="file://$MODULE_DIR$/userland/src" isTestSource="false" />
       <excludeFolder url="file://$MODULE_DIR$/target" />
     </content>
     <orderEntry type="inheritedJdk" />

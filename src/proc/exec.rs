@@ -8,16 +8,31 @@
 //! 任务 / 上下文创建与系统调用接线不在其内，调用方拿到 [`LoadedImage`] 后自行
 //! 决定如何执行。
 
-use alloc::vec::Vec;
+use alloc::{
+    collections::BTreeMap,
+    string::{String, ToString},
+    vec,
+    vec::Vec,
+};
 use core::ptr;
 
-use goethite_config::{PAGE_SIZE, align};
+use goethite_config::{PAGE_SIZE, USER_STACK_LOWER_BOUND, USER_STACK_SIZE, USER_STACK_TOP, align};
 use goethite_elf::{ElfError, ElfHeader, ProgramHeader, ProgramType};
-use goethite_riscv64::addr::VirtualAddr;
+use goethite_fs::Path;
+use goethite_riscv64::{
+    addr::VirtualAddr,
+    registers::{Registers, values::SstatusValue},
+};
+use goethite_stack::{AT_ENTRY, AT_PAGESZ, Input, required_len, write};
 
 use crate::{
-    mm::page_table::PageTableEntryFlags,
-    proc::vma::{LoadSegment, MemSetError, MemorySet, Vma, VmaKind},
+    fs,
+    mm::{page_table::PageTableEntryFlags, stack::Stack},
+    proc::{
+        Context, Task, TaskId, TaskStatus, alloc_tid,
+        schedule::SCHEDULER,
+        vma::{LoadSegment, MemorySetError, MemorySet, Vma, VmaKind},
+    },
 };
 
 /// ELF 加载可能出现的错误。
@@ -28,7 +43,7 @@ pub enum ExecError {
     Elf(#[from] ElfError),
     /// 地址空间构建失败（物理帧分配或页表映射）。
     #[error(transparent)]
-    MemSet(#[from] MemSetError),
+    MemSet(#[from] MemorySetError),
     /// ELF 中没有任何 `PT_LOAD` 段。
     #[error("no loadable segment in ELF")]
     NoLoadableSegment,
@@ -257,4 +272,132 @@ fn fill_segment(buffer: &[u8], plan: &SegmentPlan, vma: &Vma) {
             ptr::copy_nonoverlapping(src, dst, end - start);
         }
     }
+}
+
+/// 将数据切片写入指定 VMA 的虚拟地址 `user_vaddr` 处。
+fn copy_to_vma(vma: &Vma, user_vaddr: usize, data: &[u8]) {
+    let mut offset = 0;
+    while offset < data.len() {
+        let cur_va = user_vaddr + offset;
+        let mr = vma
+            .backing
+            .iter()
+            .find(|mr| {
+                let start = usize::from(mr.vaddr);
+                let end = start + mr.region.byte_size();
+                start <= cur_va && cur_va < end
+            })
+            .expect("user address must fall within VMA backing regions");
+        let mr_start = usize::from(mr.vaddr);
+        let mr_offset = cur_va - mr_start;
+        let chunk_len = (mr.region.byte_size() - mr_offset).min(data.len() - offset);
+        unsafe {
+            let dst = mr.region.as_mut_ptr::<u8>().add(mr_offset);
+            ptr::copy_nonoverlapping(data.as_ptr().add(offset), dst, chunk_len);
+        }
+        offset += chunk_len;
+    }
+}
+
+pub fn execve(path: Path, mut args: Vec<String>, envp: BTreeMap<String, String>) -> TaskId {
+    let buffer = fs::read_file(path.as_str()).unwrap();
+
+    let mut loaded = load_elf(&buffer).unwrap();
+
+    let tgid = loaded.memory_set.tgid;
+    let tid = alloc_tid(tgid).unwrap();
+
+    // 为用户栈分配并映射 VMA
+    let stack_perms = PageTableEntryFlags::builder()
+        .set_readable(true)
+        .set_writable(true)
+        .set_user(true)
+        .set_accessed(true)
+        .set_dirty(true)
+        .build();
+
+    loaded
+        .memory_set
+        .add_anon(
+            VirtualAddr::from(USER_STACK_LOWER_BOUND),
+            USER_STACK_SIZE,
+            stack_perms,
+            VmaKind::Stack,
+        )
+        .unwrap();
+
+    let stack_vma = loaded.memory_set.vmas.last_mut().unwrap();
+    for mr in &stack_vma.backing {
+        unsafe {
+            ptr::write_bytes(mr.region.as_mut_ptr::<u8>(), 0, mr.region.byte_size());
+        }
+    }
+
+    if args.is_empty() {
+        args.push(path.as_str().to_string());
+    }
+
+    let argv_strs: Vec<&str> = args.iter().map(String::as_str).collect();
+    let env_strs: Vec<(&str, &str)> = envp.iter().map(|(k, v)| (k.as_str(), v.as_str())).collect();
+
+    let auxv = [
+        (AT_PAGESZ, PAGE_SIZE as u64),
+        (AT_ENTRY, usize::from(loaded.entry) as u64),
+    ];
+
+    let input = Input {
+        argv: &argv_strs,
+        env: &env_strs,
+        auxv: &auxv,
+    };
+
+    let img_len = required_len(&input);
+    let mut img_buf = vec![0u8; img_len];
+    write(&mut img_buf, &input).unwrap();
+
+    // 在用户栈顶写入栈映像（对齐到 16 字节）
+    let image_start = USER_STACK_TOP
+        .checked_sub(img_len)
+        .expect("initial stack image exceeds address space")
+        & !0xf;
+    assert!(
+        image_start >= USER_STACK_LOWER_BOUND + 16,
+        "initial stack image exceeds user stack"
+    );
+    copy_to_vma(stack_vma, image_start, &img_buf);
+
+    // 用户栈指针 sp（16 字节对齐），栈顶存放指向栈映像起始地址的指针
+    let user_sp = (image_start - 16) & !0xf;
+    let image_ptr_bytes = (image_start as u64).to_le_bytes();
+    copy_to_vma(stack_vma, user_sp, &image_ptr_bytes);
+
+    let satp = loaded.memory_set.satp();
+
+    let mut registers = Registers::default();
+    registers.sp = user_sp as u64;
+
+    // sstatus: SPP = 0 (U-mode), SPIE = 1 (开启中断)
+    let sstatus = SstatusValue::builder().set_spie(true).build().into();
+
+    let task = Task {
+        task_id: tid,
+        task_group_id: tgid,
+        parent: None,
+        children: vec![],
+        memory_set: loaded.memory_set,
+        status: TaskStatus::Ready,
+        file_desc: vec![],
+        priority: 0,
+        stack: Stack::new(),
+        context: Context {
+            sepc: usize::from(loaded.entry) as u64,
+            sstatus,
+            satp,
+            registers,
+        },
+    };
+
+    SCHEDULER.lock().insert_task(task);
+
+    tid
 }

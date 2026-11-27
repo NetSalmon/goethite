@@ -1,0 +1,18 @@
+[package]
+name = "goethite-test-kernel"
+version = "0.1.0"
+edition = "2024"
+license = "GPL-3.0-or-later"
+
+[[bin]]
+name = "goethite-test-kernel"
+path = "src/main.rs"
+test = false
+bench = false
+doctest = false
+
+[dependencies]
+goethite-test = { path = "../test" }
+goethite-console = { path = "../console", features = ["qemu-tests"] }
+goethite-riscv64 = { path = "../riscv64", features = ["qemu-tests"] }
+goethite-sync = { path = "../sync", features = ["qemu-tests"] }

@@ -4,7 +4,7 @@ use core::{cmp::max, ops::Range};
 use goethite_config::PAGE_SIZE;
 use goethite_macros::load_symbol;
 use goethite_riscv64::addr::PhysicalAddr;
-use goethite_stdio::{eprintln, println};
+use goethite_console::{eprintln, println};
 
 use crate::{
     FDT_ADDR,
@@ -13,7 +13,7 @@ use crate::{
         virtio_blk::VirtioBlkDriver, virtio_net::VirtioNetDriver, virtio_rng::VirtioRngDriver,
     },
     error::{KernelError, KernelResult},
-    mm::{address_space::AS_MANAGER, alloc::FRAME_ALLOCATOR, page_table::PageTableEntryFlags},
+    mm::{address_space::ADDRESS_SPACE_MANAGER, alloc::FRAME_ALLOCATOR, page_table::PageTableEntryFlags},
 };
 
 /// 探测设备树中的全部设备：注册内置驱动、匹配、probe 并登记进设备管理器。
@@ -83,7 +83,7 @@ pub fn init_page_table(memory_ranges: &[Range<usize>]) -> KernelResult<()> {
             let pa = PhysicalAddr::from(pa);
             let va = pa.as_vaddr();
 
-            AS_MANAGER.force().write().kernel_mut().map(va, pa, flag)?;
+            ADDRESS_SPACE_MANAGER.force().write().kernel_mut().map(va, pa, flag)?;
         }
     }
 
@@ -93,12 +93,12 @@ pub fn init_page_table(memory_ranges: &[Range<usize>]) -> KernelResult<()> {
                 let pa = PhysicalAddr::from(i);
                 let va = pa.as_vaddr();
 
-                AS_MANAGER.force().write().kernel_mut().map(va, pa, flag)?;
+                ADDRESS_SPACE_MANAGER.force().write().kernel_mut().map(va, pa, flag)?;
             }
         }
     }
 
-    AS_MANAGER
+    ADDRESS_SPACE_MANAGER
         .read()
         .kernel_activate()
         .map_err(|err| err.into())

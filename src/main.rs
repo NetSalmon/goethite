@@ -30,18 +30,24 @@ pub mod trap;
 
 extern crate alloc;
 
+use alloc::collections::BTreeMap;
+use alloc::string::ToString;
+use alloc::vec;
 use core::arch::naked_asm;
 
 use goethite_macros::{critical_section, load_symbol};
 use goethite_riscv64::{
-    addr::{PA, PhysicalAddr, VirtualAddr},
+    addr::{PhysicalAddr, VirtualAddr},
     breakpoint,
     registers::csr::Stvec,
 };
+use goethite_riscv64::registers::gpr::Sp;
 use trap::entry::__kernel_trap_entry;
 
 use crate::{boot::BOOT_STACK_SIZE, mm::alloc::FRAME_ALLOCATOR};
-use crate::proc::schedule::SCHEDULER_STACK;
+use crate::proc::exec::execve;
+use crate::proc::schedule::{SCHEDULER, SCHEDULER_STACK};
+use crate::switch::switch_stack;
 
 /// Kernel Stack Size limit 16KiB
 pub const KERNEL_STACK_SIZE: usize = 0x1000 * 16;
@@ -70,7 +76,7 @@ pub fn main(ptr: *mut u32) {
         let fdt_ptr = PhysicalAddr::from(ptr as usize).as_vaddr();
         unsafe { FDT_ADDR = fdt_ptr; }
 
-        let boot_stack = PA::from(load_symbol!(__boot_stack)).as_vaddr().into();
+        let boot_stack = PhysicalAddr::from(load_symbol!(__boot_stack)).as_vaddr().into();
 
         // 销毁boot栈
         FRAME_ALLOCATOR
@@ -89,9 +95,13 @@ pub fn main(ptr: *mut u32) {
 
     breakpoint();
 
+    execve("/hello".into(), vec!["hello".to_string()], BTreeMap::new());
 
+    // KERNEL_STACK不再使用
+    unsafe { switch_stack(Sp::read() as *mut usize, SCHEDULER_STACK.sp); }
 
-    loop {
-        core::hint::spin_loop();
-    }
+    SCHEDULER
+        .force()
+        .lock()
+        .run();
 }

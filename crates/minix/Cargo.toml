@@ -1,0 +1,17 @@
+[package]
+name = "goethite-minix"
+version = "0.1.0"
+edition = "2024"
+license = "GPL-3.0-or-later"
+
+[lib]
+test = false
+bench = false
+doctest = false
+
+[dependencies]
+goethite-bitmap = { path = "../bitmap" }
+goethite-config = { path = "../config" }
+goethite-fs = { path = "../fs" }
+goethite-macros = { path = "../macros" }
+goethite-sync = { path = "../sync" }

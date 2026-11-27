@@ -33,7 +33,7 @@ virtio 驱动、ELF 加载、进程调度（fork / execve）等，当前覆盖�
 | `goethite-macros-impl`    | `goethite-macros` 的过程宏实现（`proc-macro = true`，不导出普通项）      |
 | `goethite-id-alloc`       | 两级 ID 分配器（类 `dev_t` 的 major/minor 模型）                         |
 | `goethite-intrusive-list` | 侵入式单链表（伙伴系统 / SLUB 空闲链表复用）                             |
-| `goethite-stdio`          | 内核控制台输出与 `print` 系列宏（经 SBI 调试控制台）                     |
+| `goethite-console`        | 内核控制台输出与 `print` 系列宏（经 SBI 调试控制台）                     |
 | `goethite-elf`            | ELF64 解析（文件头 / 程序头，供用户程序加载）                            |
 | `goethite-stack`          | 进程栈映像（argv / env / auxv）的零拷贝解析与序列化                      |
 | `goethite-abi`        | 系统调用接口雏形（`PosixErrno` / `Syscall` 形状）                             |
@@ -41,7 +41,7 @@ virtio 驱动、ELF 加载、进程调度（fork / execve）等，当前覆盖�
 ### 依赖关系（上游 → 下游）
 
 底层 crate（`goethite-riscv64`、`goethite-intrusive-list`、`goethite-id-alloc`、`goethite-macros-impl`）
-几乎无依赖；`goethite-sync` / `goethite-config` / `goethite-stdio` 依赖底层；内核本体 `goethite`
+几乎无依赖；`goethite-sync` / `goethite-config` / `goethite-console` 依赖底层；内核本体 `goethite`
 依赖上述全部。`goethite-macros` 与 `goethite-macros-impl` 是「重新导出 + 过程宏」的两段式拆分
 （过程宏 crate 无法导出普通项），二者协作提供 `bits!` 等宏。
 
@@ -64,8 +64,8 @@ virtio 驱动、ELF 加载、进程调度（fork / execve）等，当前覆盖�
 
 目标为 `riscv64gc-unknown-none-elf`（见 `.cargo/config.toml`）。链接脚本按包注入：
 内核由根 `build.rs` 指定 `src/link-scripts/linker.ld`（`ENTRY(_boot)`），
-用户态由 `goethite-userland/build.rs` 指定
-`goethite-userland/src/link-scripts/userland.ld`（`ENTRY(_start)`），
+用户态由 `userland/build.rs` 指定
+`userland/src/link-scripts/userland.ld`（`ENTRY(_start)`），
 避免全局 rustflags 把内核脚本误用于用户程序：
 
 ```bash
@@ -74,6 +74,33 @@ cargo build                # 或 cargo check 做编译期验证
 ```
 
 也可仅对单个 crate 检查：`cargo check -p goethite-sync` 等。
+
+## 测试
+
+测试分两层，统一由 `xtask` 驱动（`cargo xtest` 别名见 `.cargo/config.toml`）：
+
+| 命令 | 内容 |
+|------|------|
+| `cargo xtest` / `cargo xtest all` | 宿主机测试 + QEMU 测试 |
+| `cargo xtest host` | 只跑宿主机纯逻辑测试（`x86_64-unknown-linux-gnu`） |
+| `cargo xtest qemu` | 只跑 QEMU 硬件相关测试（`riscv64gc-unknown-none-elf`） |
+| `cargo xtest host --filter <子串>` | 按名字过滤宿主机测试 |
+| `cargo xtest --release` | 使用 release 构建 |
+
+- **纯逻辑 crate**：在 `crates/<crate>/tests/` 下写普通 `#[test]`。`xtask` 用
+  `--target x86_64-unknown-linux-gnu` 覆盖仓库默认的 RISC-V 目标，测试直接在本机运行。
+- **硬件相关 crate**：在 crate 中增加 `qemu-tests` feature 与对应的测试模块，用
+  `goethite_test::test_suite!` 注册测试；`goethite-test-kernel` 汇总各 crate 的套件，
+  在 QEMU 中依次执行。目前覆盖 `goethite-riscv64`（CSR / trap / SBI）、
+  `goethite-sync`（自旋锁 / 原子操作）与 `goethite-console`（控制台输出）。
+- 测试内核通过 QEMU virt 的 SiFive test finisher 退出，`xtask` 依据退出码和
+  `GOETHITE_TEST_SUMMARY passed=N failed=M` 行判定结果。日志写入
+  `target/goethite-qemu-test.log`，超时可用 `GOETHITE_QEMU_TIMEOUT=<秒>` 调整。
+- QEMU 测试需要 `qemu-system-riscv64`；可用 `QEMU` 环境变量指定其他可执行文件。
+
+新增宿主机测试后，将其 crate 加入 `xtask/src/main.rs` 的 `HOST_CRATES`；新增 QEMU
+测试套件则在 `goethite-test-kernel` 的 `rust_main` 中登记。`goethite-syscall` 与
+`goethite-userland` 依赖陷阱或用户态执行环境，暂未纳入这两层测试。
 
 ## 运行（QEMU）
 
@@ -93,7 +120,7 @@ qemu-system-riscv64 -machine virt -nographic \
 
 - **分阶段启动**：低地址（MMU 关闭）与高地址（Sv39 开启）分段，见 `boot.rs` 与链接脚本。
 - **错误类型**：各子系统用 `thiserror` 定义可组合的错误枚举（`KernelError`、`AllocError`、
-  `ASpaceError`、`MemSetError`、`DeviceError`），并在 `From` 转换间向上传播，避免丢失语义。
+  `AddressSpaceError`、`MemorySetError`、`DeviceError`），并在 `From` 转换间向上传播，避免丢失语义。
 - **类型安全**：用 `bits!` / `numeric!` 生成位域与整数新类型；用 typestate（`PageObject<T, Uninit/Init>`）
   在编译期保证未初始化内存不被读取。
 - **最小依赖**：尽量复用 workspace 内已有 crate，不为单点功能新增第三方依赖。

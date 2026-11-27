@@ -1,0 +1,16 @@
+[package]
+name = "goethite-fs"
+version = "0.1.0"
+edition = "2024"
+license = "GPL-3.0-or-later"
+
+[lib]
+test = false
+bench = false
+doctest = false
+
+[dependencies]
+goethite-config = { path = "../config" }
+goethite-macros = { path = "../macros" }
+goethite-sync = { path = "../sync" }
+thiserror = { version = "2.0.20", default-features = false }

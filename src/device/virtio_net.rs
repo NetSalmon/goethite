@@ -17,7 +17,7 @@ use goethite_config::{
     PAGE_SIZE, RING_SIZE, VIRTIO_F_VERSION_1, VIRTIO_NET_F_MAC, VIRTIO_NET_HDR_LEGACY,
     VIRTIO_NET_HDR_MODERN, VIRTIO_VERSION_LEGACY, VIRTQ_AVAIL_F_NO_INTERRUPT,
 };
-use goethite_stdio::{eprintln, println};
+use goethite_console::{eprintln, println};
 use goethite_sync::SpinLock;
 
 use crate::{

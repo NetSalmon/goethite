@@ -15,6 +15,7 @@ dependencies = [
  "fdt",
  "goethite-abi",
  "goethite-config",
+ "goethite-console",
  "goethite-elf",
  "goethite-fs",
  "goethite-id-alloc",
@@ -23,7 +24,7 @@ dependencies = [
  "goethite-minix",
  "goethite-riscv64",
  "goethite-riscv64-asm",
- "goethite-stdio",
+ "goethite-stack",
  "goethite-sync",
  "paste",
  "thiserror",
@@ -48,6 +49,14 @@ name = "goethite-config"
 version = "0.1.0"
 dependencies = [
  "goethite-macros",
+]
+
+[[package]]
+name = "goethite-console"
+version = "0.1.0"
+dependencies = [
+ "goethite-riscv64",
+ "goethite-test",
 ]
 
 [[package]]
@@ -113,6 +122,7 @@ version = "0.1.0"
 dependencies = [
  "goethite-config",
  "goethite-macros",
+ "goethite-test",
  "paste",
 ]
 
@@ -128,17 +138,11 @@ name = "goethite-stack"
 version = "0.1.0"
 
 [[package]]
-name = "goethite-stdio"
-version = "0.1.0"
-dependencies = [
- "goethite-riscv64",
-]
-
-[[package]]
 name = "goethite-sync"
 version = "0.1.0"
 dependencies = [
  "goethite-riscv64",
+ "goethite-test",
 ]
 
 [[package]]
@@ -147,6 +151,20 @@ version = "0.1.0"
 dependencies = [
  "goethite-abi",
  "goethite-riscv64",
+]
+
+[[package]]
+name = "goethite-test"
+version = "0.1.0"
+
+[[package]]
+name = "goethite-test-kernel"
+version = "0.1.0"
+dependencies = [
+ "goethite-console",
+ "goethite-riscv64",
+ "goethite-sync",
+ "goethite-test",
 ]
 
 [[package]]
