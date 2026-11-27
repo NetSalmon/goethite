@@ -409,6 +409,27 @@ impl<T> RefHandle<T, Uninit> {
     }
 }
 
+impl<const N: usize> RefHandle<[u8; N], Uninit> {
+    /// 直接将底层页块中的 `[u8; N]` 就地清零，返回一个 **已初始化** 的
+    /// [`RefHandle<[u8; N], Init>`]。
+    ///
+    /// 与 [`RefHandle::init`] 不同，本方法不在当前栈上构造 `[0u8; N]` 临时数组，
+    /// 避免大数组（如 64 KiB 内核栈）导致调用方内核栈溢出。
+    pub fn init_zeroed(mut self) -> RefHandle<[u8; N], Init> {
+        unsafe {
+            core::ptr::write_bytes(self.ptr.as_mut().as_mut_ptr().cast::<u8>(), 0, N);
+        }
+        let initialized = RefHandle {
+            ptr: self.ptr,
+            count: self.count,
+            page_order: self.page_order,
+            state: PhantomData,
+        };
+        core::mem::forget(self);
+        initialized
+    }
+}
+
 impl<T> RefHandle<T, Init> {
     /// 当前强引用计数。
     #[inline]

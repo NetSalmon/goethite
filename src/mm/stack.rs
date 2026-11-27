@@ -18,7 +18,6 @@ use crate::{
 /// 换栈时除切换帧以外，调用链本身还要占用的栈空间。
 const SWITCH_HEADROOM: usize = 512;
 
-#[repr(align(4096))]
 pub struct Stack {
     pub handle: RefHandle<[u8; KERNEL_STACK_SIZE], Init>,
     /// 离开本栈时保存的栈指针。
@@ -44,7 +43,7 @@ impl Clone for Stack {
 impl Stack {
     pub fn try_new() -> Result<Stack, AllocError> {
         let handle = RefHandle::alloc()?;
-        let handle = handle.init([0u8; KERNEL_STACK_SIZE]);
+        let handle = handle.init_zeroed();
         let sp = raw_top(&handle) as usize;
 
         Ok(Stack { handle, sp })

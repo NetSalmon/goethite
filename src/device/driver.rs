@@ -15,7 +15,7 @@ use alloc::{sync::Arc, vec::Vec};
 use goethite_macros::lazy;
 
 use crate::device::{
-    DEVICE_MANAGER, Device, DeviceError, FileType, Major, Mode,
+    DEVICE_MANAGER, Device, DeviceError, DeviceNaming, FileType, Major, Mode,
     desc::{DEVICE_DESC_MANAGER, DeviceDesc, RankedDesc},
 };
 
@@ -63,6 +63,11 @@ pub trait Driver: Send + Sync {
     /// 该驱动所提供设备的文件类型（块设备 / 字符设备等）。
     fn file_type(&self) -> FileType {
         FileType::CHR
+    }
+
+    /// 该驱动注册到 devfs 时的 Unix 设备命名规则（默认沿用设备描述名）。
+    fn naming(&self) -> DeviceNaming {
+        DeviceNaming::DescName
     }
 
     /// 该驱动所提供设备的默认访问权限位（默认属主 / 属组 / 其他均可读写）。

@@ -9,7 +9,11 @@
 use core::sync::atomic::{Ordering, fence};
 
 use crate::{
-    device::{DeviceInfo, desc::DEVICE_DESC_MANAGER, virt_to_phys},
+    device::{
+        DeviceInfo,
+        desc::{DEVICE_DESC_MANAGER, DeviceDesc},
+        virt_to_phys,
+    },
     mmio_regs,
 };
 
@@ -59,6 +63,13 @@ struct FwCfgDmaAccess {
 }
 
 impl FwCfg {
+    /// 从设备描述构造 fw_cfg（要求存在 MMIO 窗口）。
+    pub fn from_desc(desc: &DeviceDesc) -> Option<Self> {
+        Some(Self {
+            device: DeviceInfo::from_desc(desc)?,
+        })
+    }
+
     /// 从设备描述管理器探测 fw_cfg（compatible `qemu,fw-cfg-mmio`）。
     pub fn probe() -> Option<Self> {
         let desc = DEVICE_DESC_MANAGER
@@ -69,9 +80,7 @@ impl FwCfg {
             .desc
             .clone();
 
-        Some(Self {
-            device: DeviceInfo::from_desc(&desc)?,
-        })
+        Self::from_desc(&desc)
     }
 
     /// 一次 DMA 传输：`control` 含方向与 selector（高 16 位），数据位于

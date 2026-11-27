@@ -127,6 +127,7 @@ impl AddressSpace {
         pte0.set_global(flags.global());
         pte0.set_accessed(flags.accessed());
         pte0.set_dirty(flags.dirty());
+        pte0.set_cow(flags.cow());
 
         Ok(())
     }
@@ -256,6 +257,103 @@ impl AddressSpace {
         for i in KERNEL_PTE_START..PAGE_TABLE_SIZE {
             self.root.entries[i] = other.root.entries[i];
         }
+    }
+
+    /// 刷新 TLB：`va` 为 `Some` 时仅刷新该虚拟地址对应条目，否则刷新全部。
+    #[inline]
+    pub fn flush_tlb(va: Option<VirtualAddr>) {
+        unsafe {
+            match va {
+                Some(v) => asm!("sfence.vma {}, zero", in(reg) usize::from(v)),
+                None => asm!("sfence.vma"),
+            }
+        }
+    }
+
+    /// 为 `fork` 按写时复制（COW）克隆当前用户地址空间：
+    ///
+    /// - 高半区（`KERNEL_PTE_START..PAGE_TABLE_SIZE`）共享内核根页表项；
+    /// - 低半区（`0..KERNEL_PTE_START`）遍历全部有效叶页表项：
+    ///   - 原先可写（`W=1`）的页在父子双方页表中均清除 `W` 并置位 `COW`（RSW bit 8）；
+    ///   - 只读页保持原标志与子进程共享同一物理帧；
+    /// - 完成后刷新 TLB，使父进程后续写入立即触发 `STORE_PAGE_FAULT`。
+    pub fn clone_cow(&mut self, kernel: &Self) -> Result<Self, AllocError> {
+        let mut child = Self::try_from_kernel(kernel)?;
+
+        for vpn2 in 0..KERNEL_PTE_START {
+            let pte2 = self.root.entries[vpn2];
+            if !pte2.validate() {
+                continue;
+            }
+            let pt1_key = pte2.ppn() as usize;
+            let Some(pt1) = self.children.get(&pt1_key) else {
+                continue;
+            };
+            let pt1_entries = pt1.entries;
+
+            for (vpn1, pte1) in pt1_entries.iter().enumerate() {
+                if !pte1.validate() {
+                    continue;
+                }
+                let pt0_key = pte1.ppn() as usize;
+                let Some(pt0) = self.children.get_mut(&pt0_key) else {
+                    continue;
+                };
+
+                for vpn0 in 0..PAGE_TABLE_SIZE {
+                    let pte0 = &mut pt0.entries[vpn0];
+                    if !pte0.validate() {
+                        continue;
+                    }
+
+                    if pte0.writable() {
+                        pte0.set_writable(false);
+                        pte0.set_cow(true);
+                    }
+
+                    let va = VirtualAddr::from((vpn2 << 30) | (vpn1 << 21) | (vpn0 << 12));
+                    let mut pa = PhysicalAddr::new();
+                    pa.set_ppn(pte0.ppn() as usize);
+                    let flags = pte0.to_flags();
+
+                    child.map(va, pa, flags)?;
+                }
+            }
+        }
+
+        Self::flush_tlb(None);
+        Ok(child)
+    }
+
+    /// 处理指定虚拟页 `va` 的写时复制（COW）缺页：
+    ///
+    /// - 若该页不存在有效映射或未标记 `COW`，返回 `None`；
+    /// - 若 `new_pa` 为 `Some(pa)`，把叶页表项改指向新物理页 `pa`；
+    /// - 若 `new_pa` 为 `None`（当前进程已是该物理帧唯一持有者），就地提升为可写；
+    /// - 两种情况都会恢复 `W=1`、清除 `COW=0`、刷新该页 TLB，并返回旧的物理页地址。
+    pub fn resolve_cow(
+        &mut self,
+        va: VirtualAddr,
+        new_pa: Option<PhysicalAddr>,
+    ) -> Option<PhysicalAddr> {
+        let pte = self.pte_mut(va)?;
+        if !pte.validate() || !pte.cow() {
+            return None;
+        }
+
+        let mut old_pa = PhysicalAddr::new();
+        old_pa.set_ppn(pte.ppn() as usize);
+
+        if let Some(pa) = new_pa {
+            pte.set_ppn(pa.ppn() as u64);
+        }
+        pte.set_writable(true);
+        pte.set_cow(false);
+        pte.set_accessed(true);
+        pte.set_dirty(true);
+
+        Self::flush_tlb(Some(va));
+        Some(old_pa)
     }
 }
 
@@ -394,6 +492,40 @@ impl AddressSpaceManager {
     /// 释放进程 `tgid` 的地址空间（归还其全部页表页）。
     pub fn free(&mut self, tgid: TaskGroupId) {
         self.user.remove(&tgid);
+    }
+
+    /// 将临时 `src` 的地址空间迁移到 `dst`（覆盖 `dst` 原有地址空间），用于 `execve` 原地替换映像。
+    pub fn replace(&mut self, dst: TaskGroupId, src: TaskGroupId) {
+        if let Some(aspace) = self.user.remove(&src) {
+            self.user.insert(dst, aspace);
+        }
+    }
+
+    /// 为 `fork` 按写时复制（COW）从 `parent` 克隆子进程地址空间到 `child`。
+    pub fn fork_cow(
+        &mut self,
+        parent: TaskGroupId,
+        child: TaskGroupId,
+    ) -> Result<(), AddressSpaceError> {
+        if self.user.contains_key(&child) {
+            return Err(AddressSpaceError::AlreadyExists);
+        }
+        let kernel = &self.kernel;
+        let parent_aspace = self.user.get_mut(&parent).ok_or(AddressSpaceError::NotFound)?;
+        let child_aspace = parent_aspace.clone_cow(kernel)?;
+        self.user.insert(child, child_aspace);
+        Ok(())
+    }
+
+    /// 对进程 `tgid` 地址空间中 `va` 处的 COW 页完成写权限恢复或重映射到 `new_pa`。
+    pub fn resolve_cow(
+        &mut self,
+        tgid: TaskGroupId,
+        va: VirtualAddr,
+        new_pa: Option<PhysicalAddr>,
+    ) -> Result<Option<PhysicalAddr>, AddressSpaceError> {
+        let aspace = self.user.get_mut(&tgid).ok_or(AddressSpaceError::NotFound)?;
+        Ok(aspace.resolve_cow(va, new_pa))
     }
 }
 

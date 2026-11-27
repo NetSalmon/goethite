@@ -10,8 +10,8 @@ use goethite_macros::bits;
 
 use crate::{
     device::{
-        Device, DeviceError, DeviceInfo, DeviceResult, FileType, Major, desc::DeviceDesc,
-        driver::Driver, preset,
+        Device, DeviceError, DeviceInfo, DeviceNaming, DeviceResult, FileType, Major,
+        desc::DeviceDesc, driver::Driver, preset,
     },
     mmio_regs,
 };
@@ -140,6 +140,10 @@ impl Driver for Ns16550aDriver {
 
     fn file_type(&self) -> FileType {
         FileType::CHR
+    }
+
+    fn naming(&self) -> DeviceNaming {
+        DeviceNaming::Numeric("ttyS")
     }
 
     fn probe(&self, desc: &Arc<DeviceDesc>) -> Result<Arc<dyn Device>, DeviceError> {

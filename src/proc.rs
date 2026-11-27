@@ -9,7 +9,7 @@ use goethite_config::MAX_CPU;
 use goethite_id_alloc::{Id, IdAlloc};
 use goethite_macros::lazy;
 use goethite_riscv64::registers::Registers;
-use goethite_sync::{LazyLock, PerCpu, SpinLock};
+use goethite_sync::{PerCpu, SpinLock};
 
 use crate::{fs::FileDesc, mm::stack::Stack, proc::vma::MemorySet};
 
@@ -152,15 +152,44 @@ pub struct Task {
     pub parent: Option<Weak<Task>>,
     pub children: Vec<Arc<Task>>,
 
-    pub memory_set: MemorySet,
+    pub memory_set: Arc<SpinLock<MemorySet>>,
     pub status: TaskStatus,
 
-    pub file_desc: Vec<FileDesc>,
+    pub file_desc: Arc<SpinLock<Vec<Option<FileDesc>>>>,
 
     pub priority: u8,
     /// 本任务的内核栈；`Stack` 的克隆通过 `RefHandle` 共享同一段栈内存。
     pub stack: Stack,
     pub context: Context,
+}
+
+impl Task {
+    /// 按文件描述符编号取出已打开的 [`FileDesc`] 克隆句柄。
+    pub fn fd(&self, fd: usize) -> Option<FileDesc> {
+        self.file_desc.lock().get(fd)?.clone()
+    }
+
+    /// 为新打开的 [`FileDesc`] 分配最小可用 fd 编号。
+    pub fn alloc_fd(&self, desc: FileDesc) -> usize {
+        let mut table = self.file_desc.lock();
+        if let Some((idx, slot)) = table
+            .iter_mut()
+            .enumerate()
+            .find(|(_, slot)| slot.is_none())
+        {
+            *slot = Some(desc);
+            idx
+        } else {
+            let idx = table.len();
+            table.push(Some(desc));
+            idx
+        }
+    }
+
+    /// 关闭指定 fd，若原先已打开则返回被移除的 [`FileDesc`]。
+    pub fn close_fd(&self, fd: usize) -> Option<FileDesc> {
+        self.file_desc.lock().get_mut(fd)?.take()
+    }
 }
 
 pub enum TaskStatus {

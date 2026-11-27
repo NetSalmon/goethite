@@ -23,7 +23,10 @@ mod types;
 mod write;
 
 use alloc::{sync::Arc, vec, vec::Vec};
-use core::{fmt, slice};
+use core::{
+    fmt, slice,
+    sync::atomic::{AtomicUsize, Ordering},
+};
 
 pub use file::File;
 use goethite_bitmap::BitmapView;
@@ -34,7 +37,7 @@ use goethite_fs::{
     path::{Path, PathBuf},
     types::{FileType, Mode},
     vfs::{
-        File as VfsFile, FileSystem, OpenFlags, Stat,
+        DirEntry as VfsDirEntry, File as VfsFile, FileSystem, OpenFlags, Stat,
         file_ops::{FileOps, Whence},
     },
 };
@@ -417,6 +420,7 @@ where
             Arc::new(MinixFileOps {
                 fs: self.fs.clone(),
                 path: path.to_path_buf(),
+                dir_cursor: AtomicUsize::new(0),
             }),
             flags,
         ))
@@ -475,6 +479,7 @@ where
 struct MinixFileOps<T> {
     fs: Arc<MinixFs<T>>,
     path: PathBuf,
+    dir_cursor: AtomicUsize,
 }
 
 impl<T> MinixFileOps<T>
@@ -517,5 +522,34 @@ where
             return Err(FsError::Invalid);
         }
         Ok(new)
+    }
+
+    fn read_dir(&self) -> FsResult<Option<VfsDirEntry>> {
+        let file = self.open()?;
+        if file.mode().file_type() != FileType::DIR {
+            return Err(FsError::NotDir);
+        }
+        let dev = self.fs.read_lock();
+        let dir_inode = self
+            .fs
+            .read_inode(file.ino(), &*dev)
+            .map_err(FsError::from)?;
+        let entries = self
+            .fs
+            .dir_entries(&dir_inode, &*dev)
+            .map_err(FsError::from)?;
+        let idx = self.dir_cursor.fetch_add(1, Ordering::Relaxed);
+        let Some(entry) = entries.get(idx) else {
+            return Ok(None);
+        };
+        let inode = self
+            .fs
+            .read_inode(entry.ino, &*dev)
+            .map_err(FsError::from)?;
+        Ok(Some(VfsDirEntry {
+            ino: entry.ino as u64,
+            name: entry.name.clone(),
+            file_type: inode.mode.file_type(),
+        }))
     }
 }

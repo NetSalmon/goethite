@@ -35,6 +35,19 @@ pub struct DeviceDesc {
     pub props: BTreeMap<String, Vec<u8>>,
 }
 
+impl DeviceDesc {
+    /// 构造一个不对应设备树节点的虚拟设备描述（如 `null`、`zero`、`stdin` 等）。
+    pub fn virtual_device(name: &str) -> Self {
+        Self {
+            name: name.to_string(),
+            compatible: Vec::new(),
+            resources: Vec::new(),
+            irq: Vec::new(),
+            props: BTreeMap::new(),
+        }
+    }
+}
+
 impl<'a> From<Node<'a, (AlignedParser<'a>, Panic)>> for DeviceDesc {
     fn from(value: Node<'a, (AlignedParser<'a>, Panic)>) -> Self {
         let name = value.name().name.to_string();

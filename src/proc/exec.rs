@@ -11,6 +11,7 @@
 use alloc::{
     collections::BTreeMap,
     string::{String, ToString},
+    sync::Arc,
     vec,
     vec::Vec,
 };
@@ -18,12 +19,13 @@ use core::ptr;
 
 use goethite_config::{PAGE_SIZE, USER_STACK_LOWER_BOUND, USER_STACK_SIZE, USER_STACK_TOP, align};
 use goethite_elf::{ElfError, ElfHeader, ProgramHeader, ProgramType};
-use goethite_fs::Path;
+use goethite_fs::{Path, error::FsError};
 use goethite_riscv64::{
     addr::VirtualAddr,
     registers::{Registers, values::SstatusValue},
 };
 use goethite_stack::{AT_ENTRY, AT_PAGESZ, Input, required_len, write};
+use goethite_sync::SpinLock;
 
 use crate::{
     fs,
@@ -59,6 +61,9 @@ pub enum ExecError {
     /// 虚拟地址或长度溢出。
     #[error("virtual address overflow")]
     AddressOverflow,
+    /// 文件系统读取失败。
+    #[error(transparent)]
+    Fs(#[from] FsError),
 }
 
 /// 一个待加载段的内部计划：记录 ELF 原始字段（含未页对齐的虚拟地址），
@@ -299,13 +304,14 @@ fn copy_to_vma(vma: &Vma, user_vaddr: usize, data: &[u8]) {
     }
 }
 
-pub fn execve(path: Path, mut args: Vec<String>, envp: BTreeMap<String, String>) -> TaskId {
-    let buffer = fs::read_file(path.as_str()).unwrap();
-
-    let mut loaded = load_elf(&buffer).unwrap();
-
-    let tgid = loaded.memory_set.tgid;
-    let tid = alloc_tid(tgid).unwrap();
+/// 从文件系统加载 ELF 并构造独立地址空间、用户栈映像与初始 [`Context`]。
+pub fn load_task_image(
+    path: &Path,
+    mut args: Vec<String>,
+    envp: &BTreeMap<String, String>,
+) -> Result<(MemorySet, Context), ExecError> {
+    let buffer = fs::read_file(path.as_str())?;
+    let mut loaded = load_elf(&buffer)?;
 
     // 为用户栈分配并映射 VMA
     let stack_perms = PageTableEntryFlags::builder()
@@ -316,15 +322,12 @@ pub fn execve(path: Path, mut args: Vec<String>, envp: BTreeMap<String, String>)
         .set_dirty(true)
         .build();
 
-    loaded
-        .memory_set
-        .add_anon(
-            VirtualAddr::from(USER_STACK_LOWER_BOUND),
-            USER_STACK_SIZE,
-            stack_perms,
-            VmaKind::Stack,
-        )
-        .unwrap();
+    loaded.memory_set.add_anon(
+        VirtualAddr::from(USER_STACK_LOWER_BOUND),
+        USER_STACK_SIZE,
+        stack_perms,
+        VmaKind::Stack,
+    )?;
 
     let stack_vma = loaded.memory_set.vmas.last_mut().unwrap();
     for mr in &stack_vma.backing {
@@ -379,25 +382,45 @@ pub fn execve(path: Path, mut args: Vec<String>, envp: BTreeMap<String, String>)
     // sstatus: SPP = 0 (U-mode), SPIE = 1 (开启中断)
     let sstatus = SstatusValue::builder().set_spie(true).build().into();
 
+    let context = Context {
+        sepc: usize::from(loaded.entry) as u64,
+        sstatus,
+        satp,
+        registers,
+    };
+
+    Ok((loaded.memory_set, context))
+}
+
+pub fn try_execve(
+    path: Path,
+    args: Vec<String>,
+    envp: BTreeMap<String, String>,
+) -> Result<TaskId, ExecError> {
+    let (memory_set, context) = load_task_image(&path, args, &envp)?;
+    let tgid = memory_set.tgid;
+    let tid = alloc_tid(tgid).ok_or(ExecError::MemSet(MemorySetError::IdExhausted))?;
+
     let task = Task {
         task_id: tid,
         task_group_id: tgid,
         parent: None,
         children: vec![],
-        memory_set: loaded.memory_set,
+        memory_set: Arc::new(SpinLock::new(memory_set)),
         status: TaskStatus::Ready,
-        file_desc: vec![],
+        file_desc: Arc::new(SpinLock::new(
+            fs::default_stdio().expect("failed to initialize stdio file descriptors"),
+        )),
         priority: 0,
         stack: Stack::new(),
-        context: Context {
-            sepc: usize::from(loaded.entry) as u64,
-            sstatus,
-            satp,
-            registers,
-        },
+        context,
     };
 
     SCHEDULER.lock().insert_task(task);
 
-    tid
+    Ok(tid)
+}
+
+pub fn execve(path: Path, args: Vec<String>, envp: BTreeMap<String, String>) -> TaskId {
+    try_execve(path, args, envp).unwrap()
 }

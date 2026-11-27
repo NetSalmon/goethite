@@ -22,7 +22,7 @@ use goethite_sync::SpinLock;
 
 use crate::{
     device::{
-        Device, DeviceError, DeviceInfo, DeviceResult, FileType, Major,
+        Device, DeviceError, DeviceInfo, DeviceNaming, DeviceResult, FileType, Major,
         desc::DeviceDesc,
         driver::Driver,
         preset, virt_to_phys,
@@ -439,6 +439,10 @@ impl Driver for VirtioNetDriver {
 
     fn file_type(&self) -> FileType {
         FileType::CHR
+    }
+
+    fn naming(&self) -> DeviceNaming {
+        DeviceNaming::Numeric("eth")
     }
 
     fn probe(&self, desc: &Arc<DeviceDesc>) -> Result<Arc<dyn Device>, DeviceError> {

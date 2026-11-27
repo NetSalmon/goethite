@@ -90,6 +90,26 @@ name = "goethite-intrusive-list"
 version = "0.1.0"
 
 [[package]]
+name = "goethite-libc"
+version = "0.1.0"
+dependencies = [
+ "goethite-abi",
+ "goethite-stack",
+ "goethite-syscall",
+ "linked_list_allocator",
+]
+
+[[package]]
+name = "goethite-librs"
+version = "0.1.0"
+dependencies = [
+ "goethite-abi",
+ "goethite-stack",
+ "goethite-syscall",
+ "linked_list_allocator",
+]
+
+[[package]]
 name = "goethite-macros"
 version = "0.1.0"
 dependencies = [
@@ -171,10 +191,14 @@ dependencies = [
 name = "goethite-userland"
 version = "0.1.0"
 dependencies = [
- "goethite-abi",
- "goethite-stack",
- "goethite-syscall",
+ "goethite-librs",
 ]
+
+[[package]]
+name = "linked_list_allocator"
+version = "0.10.6"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "2b23ac50abb8261cb38c6e2a7192d3302e0836dac1628f6a93b82b4fad185897"
 
 [[package]]
 name = "paste"

@@ -12,7 +12,7 @@
 //!   在内核里按 syscall number 分发。
 //!
 
-use goethite_macros::numeric;
+use goethite_macros::{bits, numeric};
 
 numeric! {
     pub enum PosixErrno : i64 {
@@ -156,6 +156,36 @@ numeric! {
 pub type SysResult<T> = Result<T, PosixErrno>;
 pub type Fd = usize;
 
+bits! {
+    // `fork` 的细粒度资源控制标志（类似 Linux `clone` 语义）：
+    // - share_vm (bit 0)：共享同一虚拟地址空间（页表与 VMA）；不置位则按 COW 复制独立地址空间
+    // - share_files (bit 1)：共享文件描述符表；不置位则克隆一份独立 fd 表
+    // - share_tgid (bit 2)：加入父任务的线程组（同 tgid，即新建线程）；不置位则分配新 tgid（新建进程）
+    // - share_stack (bit 3)：共享内核栈；不置位则为子任务分配独立内核栈
+    pub type ForkFlags : u64 {
+        share_vm: 0,
+        share_files: 1,
+        share_tgid: 2,
+        share_stack: 3,
+    }
+}
+
+impl ForkFlags {
+    /// 创建独立进程的标准标志：COW 独立地址空间、独立 fd 表、新 tgid、独立内核栈。
+    pub const fn process() -> Self {
+        Self::new()
+    }
+
+    /// 创建同进程新线程的标准标志：共享地址空间、共享 fd 表、共享 tgid、独立内核栈。
+    pub fn thread() -> Self {
+        Self::builder()
+            .set_share_vm(true)
+            .set_share_files(true)
+            .set_share_tgid(true)
+            .build()
+    }
+}
+
 /// 系统调用接口的形状。
 ///
 /// 用 Rust 的类型系统把各个底层 syscall 的参数固化下来，方便将来在内核里
@@ -165,9 +195,8 @@ pub type Fd = usize;
 pub trait SyscallOps {
     /// 打开一个文件（Linux `open`）。
     ///
-    /// 按惯例接受文件路径与打开标志，成功返回文件描述符（fd），失败返回错误码。
-    /// 当前签名尚未携带这些参数，仅作为接口形状占位。
-    fn open() -> SysResult<Fd> {
+    /// 按路径、打开标志与权限模式打开文件，成功返回文件描述符（fd），失败返回错误码。
+    fn open(path: &str, flags: u32, mode: u16) -> SysResult<Fd> {
         Err(PosixErrno::ENOSYS)
     }
 
@@ -212,19 +241,37 @@ pub trait SyscallOps {
         Err(PosixErrno::ENOSYS)
     }
 
-    /// 创建子进程（Linux `fork`）。
+    /// 创建新任务（细粒度资源控制，类似 Linux `clone`）。
     ///
-    /// 复制当前进程为子进程：父进程返回子进程 pid，子进程返回 `0`，出错返回
-    /// 负错误码。
-    fn fork() -> SysResult<usize> {
+    /// - `flags`：逐项控制虚拟地址空间、文件描述符表、线程组与内核栈是共享还是隔离；
+    /// - `user_sp`：子任务初始用户栈指针；为 `0` 时沿用父任务当前 `sp`；
+    /// - `entry`：子任务入口地址；为 `0` 时从 `fork` 调用点之后继续执行且子任务收到返回值 `0`；
+    /// - `arg`：`entry != 0` 时通过 `a0` 传给子任务入口的参数。
+    ///
+    /// 父任务收到新任务 tid，出错返回负错误码。
+    fn fork(flags: ForkFlags, user_sp: usize, entry: usize, arg: usize) -> SysResult<usize> {
         Err(PosixErrno::ENOSYS)
+    }
+
+    /// 在 [`fork`](Self::fork) 之上封装：新建独立进程（COW 地址空间、独立 fd 表、新 tgid）。
+    ///
+    /// 父进程返回子进程 tid，子进程返回 `0`。
+    fn spawn_process() -> SysResult<usize> {
+        Self::fork(ForkFlags::process(), 0, 0, 0)
+    }
+
+    /// 在 [`fork`](Self::fork) 之上封装：在当前进程内新建线程（共享地址空间、fd 表与 tgid）。
+    ///
+    /// 线程从 `entry(arg)` 启动，使用 `user_sp` 作为用户栈顶；成功返回新线程 tid。
+    fn spawn_thread(entry: usize, user_sp: usize, arg: usize) -> SysResult<usize> {
+        Self::fork(ForkFlags::thread(), user_sp, entry, arg)
     }
 
     /// 用新程序替换当前进程映像（Linux `execve`）。
     ///
-    /// 加载 `path` 指向的可执行文件，以 `args` 作为 argv、`env` 作为环境变量
+    /// 加载 `path` 指向的可执行文件，以 `args` 作为 argv、`env` 作为结构化环境变量键值对
     /// 启动；成功后不返回（进程映像已被替换），失败返回负错误码。
-    fn execve(path: &str, args: &[&str], env: &[&str]) -> SysResult<i32> {
+    fn execve(path: &str, args: &[&str], env: &[(&str, &str)]) -> SysResult<i32> {
         Err(PosixErrno::ENOSYS)
     }
 
@@ -242,6 +289,26 @@ pub trait SyscallOps {
     ) -> SysResult<usize> {
         Err(PosixErrno::ENOSYS)
     }
+
+    /// 读取目录 `fd` 的下一个目录项名称到 `buf`，返回写入字节数；目录末尾返回 `0`。
+    fn read_dir(fd: usize, buf: &mut [u8]) -> SysResult<usize> {
+        Err(PosixErrno::ENOSYS)
+    }
+
+    /// 终止当前任务（状态码 `code`）。
+    fn exit(code: i32) -> SysResult<()> {
+        Err(PosixErrno::ENOSYS)
+    }
+
+    /// 等待并回收目标任务 `tid`（`0` 表示任意已退出任务）；仍在运行时返回 `EAGAIN`。
+    fn wait(tid: usize) -> SysResult<usize> {
+        Err(PosixErrno::ENOSYS)
+    }
+
+    /// 主动让出当前 CPU 时间片。
+    fn yield_now() -> SysResult<()> {
+        Err(PosixErrno::ENOSYS)
+    }
 }
 
 numeric! {
@@ -254,5 +321,11 @@ numeric! {
         FILE_STAT = 5,
         FORK = 6,
         EXECVE = 7,
+        SPAWN_PROCESS = 8,
+        SPAWN_THREAD = 9,
+        READ_DIR = 10,
+        EXIT = 11,
+        WAIT = 12,
+        YIELD = 13,
     }
 }

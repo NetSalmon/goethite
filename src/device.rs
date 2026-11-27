@@ -19,6 +19,7 @@
 pub mod desc;
 pub mod driver;
 pub mod fw_cfg;
+pub mod mem;
 pub mod ns16550a;
 pub mod plic;
 pub mod ramfb;
@@ -165,7 +166,7 @@ pub struct DeviceNode {
 
     /// 设备在文件系统 / 命名空间中的访问权限位。
     pub mode: Mode,
-    /// 设备的名字（来自设备树的节点名）。
+    /// 设备在 devfs 中的 Unix 设备名（按 [`Driver::naming`] 规则分配，如 `vda`、`ttyS0`）。
     pub name: String,
 
     /// 由设备树解析出的设备描述。
@@ -335,24 +336,82 @@ macro_rules! mmio_regs {
 pub mod preset {
     /// 内存类设备（`/dev/mem`、`/dev/null`、`/dev/zero` 等）。
     pub const MEM: usize = 1;
-    /// 终端 / 串口设备。
+    /// 终端 / 串口设备（`/dev/ttyS0` 等）。
     pub const TTY: usize = 2;
-    /// 块设备（virtio-blk 等）。
+    /// 块设备（`/dev/vda`、`/dev/vdb` 等）。
     pub const BLOCK: usize = 3;
-    /// 杂项设备。
+    /// 杂项设备（`/dev/hwrng` 等）。
     pub const MISC: usize = 4;
-    /// 网络设备（virtio-net 等）。
+    /// 网络设备（`/dev/eth0` 等）。
     pub const NET: usize = 5;
+    /// 帧缓冲显示设备（`/dev/fb0` 等）。
+    pub const FB: usize = 6;
 }
 
 /// 全部内核预设主设备号，在 [`DeviceManager::new`] 时预留。
-pub const PRESET_MAJORS: [usize; 5] = [
+pub const PRESET_MAJORS: [usize; 6] = [
     preset::MEM,
     preset::TTY,
     preset::BLOCK,
     preset::MISC,
     preset::NET,
+    preset::FB,
 ];
+
+/// 设备节点在 devfs 中的 Unix 命名规则，由 [`Driver::naming`] 声明。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DeviceNaming {
+    /// 字母序号后缀：`{prefix}a`、`{prefix}b`、…、`{prefix}z`、`{prefix}aa`、`{prefix}ab`、…
+    /// （遵循 Linux 块设备命名规则，如 `vda`、`vdb`、`vdc`）。
+    Alpha(&'static str),
+    /// 数字序号后缀：`{prefix}0`、`{prefix}1`、`{prefix}2`、…
+    /// （如串口 `ttyS0`、网卡 `eth0`、帧缓冲 `fb0`）。
+    Numeric(&'static str),
+    /// 首个设备使用 `{prefix}`，后续同类设备附加数字后缀 `{prefix}1`、`{prefix}2`、…
+    /// （如硬件熵源 `hwrng`、`hwrng1`）。
+    SingleOrNumeric(&'static str),
+    /// 直接沿用设备描述中的名称（如虚拟设备 `null`、`zero`、`stdin`、`stdout`、`stderr`）。
+    DescName,
+}
+
+impl DeviceNaming {
+    /// 按规则与同类设备序号 `index`（从 0 起）生成设备节点名。
+    pub fn format(self, index: usize, desc_name: &str) -> String {
+        match self {
+            Self::Alpha(prefix) => {
+                let mut name = String::from(prefix);
+                push_alpha_suffix(&mut name, index);
+                name
+            }
+            Self::Numeric(prefix) => alloc::format!("{prefix}{index}"),
+            Self::SingleOrNumeric(prefix) => {
+                if index == 0 {
+                    String::from(prefix)
+                } else {
+                    alloc::format!("{prefix}{index}")
+                }
+            }
+            Self::DescName => String::from(desc_name),
+        }
+    }
+}
+
+/// 将 0-based 序号编码为 Linux 块设备风格的字母后缀（0→a, 25→z, 26→aa, 27→ab, …）。
+fn push_alpha_suffix(out: &mut String, mut index: usize) {
+    let mut buf = [0u8; 16];
+    let mut len = 0;
+    loop {
+        buf[len] = b'a' + (index % 26) as u8;
+        len += 1;
+        if index < 26 {
+            break;
+        }
+        index = index / 26 - 1;
+    }
+    for &b in buf[..len].iter().rev() {
+        out.push(b as char);
+    }
+}
 
 /// 驱动对主设备号的申请方式，由 [`Driver::major`](Driver::major) 声明。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -476,7 +535,7 @@ impl DeviceManager {
             .ids
             .alloc_minor(DeviceId::from_parts(major, 0))
             .ok_or(DeviceError::AllocFailed)?;
-        let name = desc.name.clone();
+        let name = driver.naming().format(id.minor(), &desc.name);
 
         let node = Arc::new(DeviceNode {
             id,

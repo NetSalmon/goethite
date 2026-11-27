@@ -1,6 +1,7 @@
 pub mod entry;
 
 use goethite_riscv64::{
+    addr::VirtualAddr,
     registers::{Registers, csr::Sepc},
     trap::{Exception, Interrupt, Trap},
 };
@@ -9,7 +10,11 @@ use goethite_console::println;
 
 use crate::{
     device::plic,
-    proc::{CURRENT_TASK, schedule::SCHEDULER},
+    proc::{
+        CURRENT_TASK,
+        schedule::{SCHEDULER, Scheduler},
+    },
+    syscall::{SyscallOutcome, UserAccessGuard, syscall_handler},
 };
 
 pub enum TrapAction {
@@ -40,10 +45,11 @@ unsafe fn skip_instructions(mut pc: u64, skip: u64) -> u64 {
 }
 
 #[unsafe(no_mangle)]
-pub fn trap_handler(sepc: u64, scause: i64, stval: u64, stvec: u64, sstatus: u64, sp: u64) {
-    let is_user_trap = stvec == entry::__user_trap_entry as *const () as u64;
+pub fn trap_handler(sepc: u64, scause: i64, stval: u64, _stvec: u64, sstatus: u64, sp: u64) {
+    // `sstatus.SPP` (bit 8) == 0 表示陷阱来自用户态（U-mode）。
+    let is_user_trap = (sstatus & (1 << 8)) == 0;
 
-    let context = unsafe { &mut *(sp as *mut Registers).offset(-1) };
+    let context = unsafe { &mut *(sp as *mut Registers) };
 
     let action = match Trap::from(scause) {
         Trap::Exception(ept) => match ept {
@@ -52,13 +58,79 @@ pub fn trap_handler(sepc: u64, scause: i64, stval: u64, stvec: u64, sstatus: u64
                 TrapAction::NoReturn { skip: 1 }
             }
             Exception::U_MODE_ECALL => {
-                todo!()
+                // 在进入系统调用前先同步当前任务的最新寄存器现场与 ecall 之后的 sepc，
+                // 确保 fork / spawn_process / spawn_thread 复制到的父上下文准确无误。
+                let current_tid = *CURRENT_TASK.current();
+                let next_sepc = {
+                    let _sum = UserAccessGuard::enter();
+                    unsafe { skip_instructions(sepc, 1) }
+                };
+                if let Some(tid) = current_tid
+                    && let Some(current_task) = SCHEDULER.lock().task_mut(tid)
+                {
+                    current_task.context.registers = context.clone();
+                    current_task.context.sepc = next_sepc;
+                    current_task.context.sstatus = sstatus;
+                }
+                match syscall_handler(context) {
+                    SyscallOutcome::Return(value) => TrapAction::Return { value, skip: 1 },
+                    SyscallOutcome::Yield(value) => {
+                        if let Some(tid) = current_tid
+                            && let Some(current_task) = SCHEDULER.lock().task_mut(tid)
+                        {
+                            current_task.context.registers.a0 = value;
+                            current_task.context.sepc = next_sepc;
+                        }
+                        Scheduler::run_global()
+                    }
+                    SyscallOutcome::Exit => Scheduler::run_global(),
+                    SyscallOutcome::ExecReplaced => {
+                        let tid = current_tid.expect("execve without current task");
+                        Scheduler::restore_task(tid)
+                    }
+                }
             }
             Exception::ILLEGAL_INSTRUCTION => {
                 panic!("illegal instruction: {:#p}", sepc as *const ());
             }
-            Exception::STORE_PAGE_FAULT | Exception::LOAD_PAGE_FAULT => {
-                panic!("store page fault: {:#p}", sepc as *const ());
+            Exception::STORE_PAGE_FAULT => {
+                if is_user_trap
+                    && let Some(tid) = *CURRENT_TASK.current()
+                {
+                    let vm = SCHEDULER
+                        .lock()
+                        .task(tid)
+                        .map(|task| alloc::sync::Arc::clone(&task.memory_set));
+                    let resolved = vm
+                        .and_then(|vm| {
+                            vm.lock()
+                                .handle_cow_fault(VirtualAddr::from(stval as usize))
+                                .ok()
+                        })
+                        .unwrap_or(false);
+                    if resolved {
+                        TrapAction::Discard
+                    } else {
+                        panic!(
+                            "store page fault: sepc={:#p}, stval={:#p}",
+                            sepc as *const (),
+                            stval as *const ()
+                        );
+                    }
+                } else {
+                    panic!(
+                        "store page fault: sepc={:#p}, stval={:#p}",
+                        sepc as *const (),
+                        stval as *const ()
+                    );
+                }
+            }
+            Exception::LOAD_PAGE_FAULT => {
+                panic!(
+                    "load page fault: sepc={:#p}, stval={:#p}",
+                    sepc as *const (),
+                    stval as *const ()
+                );
             }
             _ => TrapAction::Discard,
         },
@@ -75,9 +147,13 @@ pub fn trap_handler(sepc: u64, scause: i64, stval: u64, stvec: u64, sstatus: u64
     let sepc = match action {
         TrapAction::Return { value, skip } => {
             context.a0 = value;
+            let _sum = is_user_trap.then(UserAccessGuard::enter);
             unsafe { skip_instructions(sepc, skip) }
         }
-        TrapAction::NoReturn { skip } => unsafe { skip_instructions(sepc, skip) },
+        TrapAction::NoReturn { skip } => {
+            let _sum = is_user_trap.then(UserAccessGuard::enter);
+            unsafe { skip_instructions(sepc, skip) }
+        }
         TrapAction::Yield => sepc,
         TrapAction::Discard => sepc,
     };

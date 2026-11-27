@@ -19,12 +19,34 @@ bits! {
         global: 5,
         accessed: 6,
         dirty: 7,
+        // RSW[0]（bit 8）：写时复制（Copy-on-Write）软件标志位。
+        cow: 8,
+        // RSW（bits 8..9）：RISC-V Sv39 留给操作系统软件使用的标志位。
+        rsw: 8 => 9,
         flags: 0 => 7,
         rwx: 1 => 3,
         ppn0: 10 => 18,
         ppn1: 19 => 27,
         ppn2: 28 => 53,
         ppn: 10 => 53,
+    }
+}
+
+impl PageTableEntry {
+    /// 提取本页表项中的权限与标志位（含 [`cow`](Self::cow)）。
+    #[inline]
+    pub fn to_flags(&self) -> PageTableEntryFlags {
+        PageTableEntryFlags::builder()
+            .set_validate(self.validate())
+            .set_readable(self.readable())
+            .set_writable(self.writable())
+            .set_executable(self.executable())
+            .set_user(self.user())
+            .set_global(self.global())
+            .set_accessed(self.accessed())
+            .set_dirty(self.dirty())
+            .set_cow(self.cow())
+            .build()
     }
 }
 
@@ -54,6 +76,8 @@ bits! {
         global: 5,
         accessed: 6,
         dirty: 7,
+        // RSW[0]（bit 8）：写时复制（Copy-on-Write）软件标志位。
+        cow: 8,
         rwx: 1 => 3,
     }
 }

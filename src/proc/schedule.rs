@@ -8,7 +8,7 @@ use goethite_riscv64::registers::csr::{Sscratch, Stvec};
 
 use crate::{
     mm::stack::Stack,
-    proc::{CURRENT_TASK, STACKS, Task, TaskId, TaskStatus},
+    proc::{CURRENT_TASK, Context, STACKS, Task, TaskGroupId, TaskId, TaskStatus},
     trap::entry::__user_trap_entry,
 };
 
@@ -124,16 +124,74 @@ impl Scheduler {
         context.restore()
     }
 
+    pub fn prepare_restore(&self, task_id: TaskId) -> Result<(TaskGroupId, Context), ()> {
+        let task = self.tasks.get(&task_id).ok_or(())?;
+        Ok((task.task_group_id, task.context.clone()))
+    }
+
     pub fn run(&mut self) {
         loop {
             let tid = self.next();
             self.restore(tid);
         }
     }
+
+    /// 切入指定任务 `tid`（不持锁进入用户态，永不返回）。
+    pub fn restore_task(tid: TaskId) -> ! {
+        let (tgid, context) = {
+            let sched = SCHEDULER.lock();
+            sched
+                .prepare_restore(tid)
+                .expect("scheduler: target task does not exist")
+        };
+
+        *CURRENT_TASK.current() = Some(tid);
+
+        let kernel_stack_top = STACKS
+            .lock()
+            .entry(tgid)
+            .or_insert_with(Stack::new)
+            .stack_top() as u64;
+
+        Sscratch::write(kernel_stack_top);
+        Stvec::write(__user_trap_entry as *const () as u64);
+
+        context.restore()
+    }
+
+    /// 调度器主循环：在释放 `SCHEDULER` 锁之后再切入用户态，避免用户态陷入后
+    /// 再次获取 `SCHEDULER` 锁导致死锁。
+    pub fn run_global() -> ! {
+        let tid = {
+            let mut sched = SCHEDULER.lock();
+            sched.try_next()
+        };
+
+        let Some(tid) = tid else {
+            goethite_console::println!("scheduler: all tasks exited, shutting down");
+            let _ = goethite_riscv64::sbi::srst::system_reset(
+                goethite_riscv64::sbi::srst::ResetType::SHUTDOWN,
+                goethite_riscv64::sbi::srst::ResetReason::NONE,
+            );
+            loop {
+                core::hint::spin_loop();
+            }
+        };
+
+        Self::restore_task(tid)
+    }
+}
+
+extern "C" fn scheduler_entry() {
+    Scheduler::run_global();
 }
 
 #[lazy]
-pub static SCHEDULER_STACK: Stack = Stack::new();
+pub static SCHEDULER_STACK: Stack = {
+    let mut stack = Stack::new();
+    stack.set_entry(scheduler_entry);
+    stack
+};
 
 impl Default for Scheduler {
     fn default() -> Self {

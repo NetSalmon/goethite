@@ -15,7 +15,7 @@ use goethite_macros::bits;
 use goethite_sync::SpinLock;
 
 use crate::device::{
-    Device, DeviceError, DeviceInfo, DeviceResult, FileType, Major,
+    Device, DeviceError, DeviceInfo, DeviceNaming, DeviceResult, FileType, Major,
     desc::DeviceDesc,
     driver::Driver,
     preset, virt_to_phys,
@@ -268,6 +268,10 @@ impl Driver for VirtioBlkDriver {
 
     fn file_type(&self) -> FileType {
         FileType::BLK
+    }
+
+    fn naming(&self) -> DeviceNaming {
+        DeviceNaming::Alpha("vd")
     }
 
     fn probe(&self, desc: &Arc<DeviceDesc>) -> Result<Arc<dyn Device>, DeviceError> {

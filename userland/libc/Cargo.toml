@@ -1,0 +1,17 @@
+[package]
+name = "goethite-libc"
+version = "0.1.0"
+edition = "2024"
+
+[lib]
+name = "c"
+crate-type = ["staticlib", "rlib"]
+doctest = false
+
+[dependencies]
+goethite-abi = { path = "../../crates/abi" }
+goethite-stack = { path = "../../crates/stack" }
+linked_list_allocator = { version = "0.10.6", default-features = false }
+
+[target.'cfg(target_arch = "riscv64")'.dependencies]
+goethite-syscall = { path = "../../crates/syscall" }

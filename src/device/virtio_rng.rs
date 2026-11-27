@@ -10,7 +10,7 @@ use alloc::{sync::Arc, vec::Vec};
 use goethite_sync::SpinLock;
 
 use crate::device::{
-    Device, DeviceError, DeviceInfo, DeviceResult, FileType, Major, Mode,
+    Device, DeviceError, DeviceInfo, DeviceNaming, DeviceResult, FileType, Major, Mode,
     desc::DeviceDesc,
     driver::Driver,
     preset, virt_to_phys,
@@ -112,6 +112,10 @@ impl Driver for VirtioRngDriver {
 
     fn file_type(&self) -> FileType {
         FileType::CHR
+    }
+
+    fn naming(&self) -> DeviceNaming {
+        DeviceNaming::SingleOrNumeric("hwrng")
     }
 
     /// 熵源只读（属主 / 属组 / 其他均可读）。

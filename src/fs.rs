@@ -11,14 +11,17 @@
 //! 挂载完成后即可通过 [`VFS`] 按路径打开 / 读写文件，例如读取根目录下的
 //! `hello` 文件。
 
-use alloc::{sync::Arc, vec::Vec};
+pub mod device;
+
+use alloc::{sync::Arc, vec, vec::Vec};
+use core::ops::Deref;
 
 use goethite_fs::{
     device::{BlockDevice, IoError, IoResult},
     error::FsResult,
     path::Path,
     types::Mode,
-    vfs::{FileSystem, OpenFlags, Vfs},
+    vfs::{File, FileSystem, OpenFlags, Stat, Vfs},
 };
 use goethite_minix::{MinixFs, MinixVfs};
 use goethite_sync::RwLock;
@@ -28,8 +31,53 @@ use crate::{
     error::{KernelError, KernelResult},
 };
 
-/// 打开文件描述符（占位：后续与 `goethite_fs::vfs::File` 对接）。
-pub struct FileDesc {}
+/// 打开的文件描述符项，包装 VFS [`File`] 句柄。
+#[derive(Debug, Clone)]
+pub struct FileDesc {
+    pub file: File,
+}
+
+impl FileDesc {
+    /// 由已打开的 VFS [`File`] 构造文件描述符项。
+    pub fn new(file: File) -> Self {
+        Self { file }
+    }
+
+    /// 经全局 [`VFS`] 打开路径并构造 [`FileDesc`]。
+    pub fn open(path: &str, flags: OpenFlags, mode: Mode) -> FsResult<Self> {
+        let file = VFS.open(&Path::new(path), flags, mode)?;
+        Ok(Self { file })
+    }
+
+    pub fn read(&self, buf: &mut [u8]) -> FsResult<usize> {
+        self.file.read(buf)
+    }
+
+    pub fn write(&self, buf: &[u8]) -> FsResult<usize> {
+        self.file.write(buf)
+    }
+
+    pub fn stat(&self) -> FsResult<Stat> {
+        self.file.stat()
+    }
+}
+
+impl Deref for FileDesc {
+    type Target = File;
+
+    fn deref(&self) -> &Self::Target {
+        &self.file
+    }
+}
+
+/// 构造预填标准 I/O（fd 0 = `/dev/stdin`、fd 1 = `/dev/stdout`、fd 2 = `/dev/stderr`）的
+/// 进程文件描述符表。
+pub fn default_stdio() -> FsResult<Vec<Option<FileDesc>>> {
+    let stdin = FileDesc::open("/dev/stdin", OpenFlags::read_only(), Mode::from(0))?;
+    let stdout = FileDesc::open("/dev/stdout", OpenFlags::write_only(), Mode::from(0))?;
+    let stderr = FileDesc::open("/dev/stderr", OpenFlags::write_only(), Mode::from(0))?;
+    Ok(vec![Some(stdin), Some(stdout), Some(stderr)])
+}
 
 /// 内核全局 VFS：所有挂载点与路径分发的中枢。
 ///
@@ -70,6 +118,13 @@ pub fn init() -> KernelResult<()> {
     let fs: Arc<dyn FileSystem> = Arc::new(MinixVfs::new(Arc::new(minix)));
     VFS.mount(&Path::new("/"), fs)?;
 
+    Ok(())
+}
+
+/// 挂载设备文件系统（[`device::DeviceFs`]）到 `/dev`。
+pub fn init_devfs() -> KernelResult<()> {
+    let devfs: Arc<dyn FileSystem> = Arc::new(device::DeviceFs::new());
+    VFS.mount(&Path::new("/dev"), devfs)?;
     Ok(())
 }
 

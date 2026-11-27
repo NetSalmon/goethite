@@ -27,6 +27,7 @@ pub mod proc;
 pub mod switch;
 pub mod syscall;
 pub mod trap;
+pub mod ipc;
 
 extern crate alloc;
 
@@ -41,13 +42,17 @@ use goethite_riscv64::{
     breakpoint,
     registers::csr::Stvec,
 };
-use goethite_riscv64::registers::gpr::Sp;
 use trap::entry::__kernel_trap_entry;
 
-use crate::{boot::BOOT_STACK_SIZE, mm::alloc::FRAME_ALLOCATOR};
-use crate::proc::exec::execve;
-use crate::proc::schedule::{SCHEDULER, SCHEDULER_STACK};
-use crate::switch::switch_stack;
+use crate::{
+    boot::BOOT_STACK_SIZE,
+    mm::alloc::FRAME_ALLOCATOR,
+    proc::{exec::try_execve, schedule::SCHEDULER_STACK},
+    switch::switch_stack,
+};
+
+/// POSIX / Linux 惯例的初始用户进程（PID 1）搜索路径。
+const INIT_PATHS: &[&str] = &["/sbin/init", "/etc/init", "/bin/init", "/init"];
 
 /// Kernel Stack Size limit 16KiB
 pub const KERNEL_STACK_SIZE: usize = 0x1000 * 16;
@@ -95,13 +100,23 @@ pub fn main(ptr: *mut u32) {
 
     breakpoint();
 
-    execve("/hello".into(), vec!["hello".to_string()], BTreeMap::new());
+    let mut init_loaded = false;
+    for path in INIT_PATHS {
+        if try_execve((*path).into(), vec![(*path).to_string()], BTreeMap::new()).is_ok() {
+            goethite_console::println!("starting init: {path}");
+            init_loaded = true;
+            break;
+        }
+    }
+    assert!(
+        init_loaded,
+        "no init binary found in {:?}",
+        INIT_PATHS
+    );
 
-    // KERNEL_STACK不再使用
-    unsafe { switch_stack(Sp::read() as *mut usize, SCHEDULER_STACK.sp); }
-
-    SCHEDULER
-        .force()
-        .lock()
-        .run();
+    // 切入调度器独立内核栈并进入调度循环（KERNEL_STACK 不再使用）
+    let mut boot_saved_sp = 0usize;
+    unsafe {
+        switch_stack(&mut boot_saved_sp, SCHEDULER_STACK.sp());
+    }
 }

@@ -44,6 +44,8 @@ const HOST_CRATES: &[&str] = &[
     "goethite-fs",
     "goethite-id-alloc",
     "goethite-intrusive-list",
+    "goethite-libc",
+    "goethite-librs",
     "goethite-macros",
     "goethite-macros-impl",
     "goethite-minix",

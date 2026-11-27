@@ -100,10 +100,25 @@ if [[ "$REBUILD_IMG" -eq 1 || ! -f "$IMG" ]]; then
         exit 1
     fi
     echo "==> 构建 userland 并生成根文件系统镜像: $IMG"
-    cargo build -p goethite-userland --bin hello "${CARGO_ARGS[@]}" --manifest-path "$ROOT/Cargo.toml"
-    HELLO_BIN="$ROOT/target/$TARGET/$PROFILE/hello"
+    cargo build -p goethite-userland --bins "${CARGO_ARGS[@]}" --manifest-path "$ROOT/Cargo.toml"
+    BIN_DIR="$ROOT/target/$TARGET/$PROFILE"
+    STAGE_DIR="$(mktemp -d)"
+    trap 'rm -rf "$STAGE_DIR"' EXIT
+    OBJCOPY="$(find "$(rustc --print sysroot)" -name llvm-objcopy 2>/dev/null | head -n 1 || true)"
+    BINS=(init sh ls cat echo hello)
+    PACK_ARGS=()
+    for name in "${BINS[@]}"; do
+        if [[ -n "$OBJCOPY" ]]; then
+            "$OBJCOPY" --strip-all "$BIN_DIR/$name" "$STAGE_DIR/$name"
+            PACK_ARGS+=("$name=$STAGE_DIR/$name")
+        else
+            PACK_ARGS+=("$name=$BIN_DIR/$name")
+        fi
+    done
+    printf 'Welcome to goethite OS!\n' > "$STAGE_DIR/motd"
+    PACK_ARGS+=("motd=$STAGE_DIR/motd")
     mkdir -p "$(dirname "$IMG")"
-    python3 "$MKMINIX" "$IMG" "hello=$HELLO_BIN"
+    python3 "$MKMINIX" "$IMG" "${PACK_ARGS[@]}"
 fi
 
 KERNEL="$ROOT/target/$TARGET/$PROFILE/goethite"

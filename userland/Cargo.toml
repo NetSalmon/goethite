@@ -9,12 +9,40 @@ bench = false
 doctest = false
 
 [dependencies]
-goethite-abi = { path = "../crates/abi" }
-goethite-syscall = { path = "../crates/syscall" }
-goethite-stack = { path = "../crates/stack" }
+goethite-librs = { path = "librs" }
 
 [[bin]]
 name = "hello"
+test = false
+bench = false
+doctest = false
+
+[[bin]]
+name = "init"
+test = false
+bench = false
+doctest = false
+
+[[bin]]
+name = "sh"
+test = false
+bench = false
+doctest = false
+
+[[bin]]
+name = "ls"
+test = false
+bench = false
+doctest = false
+
+[[bin]]
+name = "cat"
+test = false
+bench = false
+doctest = false
+
+[[bin]]
+name = "echo"
 test = false
 bench = false
 doctest = false

@@ -18,10 +18,11 @@
 //! 职责：它们由加载器 / 缺页处理路径按 [`VmaKind`] 与 [`Vma::file_offset`] 决定。
 //! 本模块只保证帧的分配、映射登记与生命周期。
 
-use alloc::vec::Vec;
+use alloc::{sync::Arc, vec::Vec};
+use core::ptr;
 
 use goethite_config::{BUDDY_MAX_ORDER, PAGE_SIZE, align};
-use goethite_riscv64::addr::VirtualAddr;
+use goethite_riscv64::addr::{PhysicalAddr, VirtualAddr};
 
 use crate::{
     mm::{
@@ -53,10 +54,12 @@ pub enum VmaKind {
 
 /// 一个已映射的物理块：物理帧 + 它被映射到的虚拟地址起点。
 ///
-/// `vaddr` 记录映射起点，便于在需要时针对这一块做 `unmap`。
+/// 使用 [`Arc<Region>`] 持有后备物理块，使 `fork` 后的父子进程在写时复制（COW）
+/// 期间安全共享同一物理帧，引用计数归零时自动归还伙伴系统。
+#[derive(Clone)]
 pub struct MappedRegion {
-    /// 物理帧的 RAII 句柄，析构时归还伙伴系统。
-    pub region: Region,
+    /// 物理帧的共享 RAII 句柄，最后一个引用析构时归还伙伴系统。
+    pub region: Arc<Region>,
     /// 该物理块被映射到的虚拟地址起点（页对齐）。
     pub vaddr: VirtualAddr,
 }
@@ -65,6 +68,7 @@ pub struct MappedRegion {
 ///
 /// `len` 是**保留的虚拟跨度**（页对齐）；`backing` 是其中真正分配并映射了的物理块，
 /// 因而缺页处理可以在保留跨度内按需把某一个物理块映射进来（见 [`MemorySet::handle_page_fault`]）。
+#[derive(Clone)]
 pub struct Vma {
     /// 起始虚拟地址。
     pub vaddr: VirtualAddr,
@@ -250,21 +254,34 @@ impl MemorySet {
             let block = order_size(order);
 
             let region = match Region::new(order) {
-                Some(r) => r,
+                Some(r) => Arc::new(r),
                 None => {
                     for mr in &backing {
-                        mgr.unmap(self.tgid, mr.vaddr).ok();
+                        for off in (0..mr.region.byte_size()).step_by(PAGE_SIZE) {
+                            mgr.unmap(self.tgid, mr.vaddr.add::<u8>(off)).ok();
+                        }
                     }
                     return Err(MemorySetError::Alloc(AllocError::OutOfMemory));
                 }
             };
             let pa = region.as_phys_addr();
 
-            if let Err(e) = mgr.map(self.tgid, vaddr, pa, perms) {
-                for mr in &backing {
-                    mgr.unmap(self.tgid, mr.vaddr).ok();
+            let mut mapped_bytes = 0usize;
+            while mapped_bytes < block {
+                let page_va = vaddr.add::<u8>(mapped_bytes);
+                let page_pa = pa.add::<u8>(mapped_bytes);
+                if let Err(e) = mgr.map(self.tgid, page_va, page_pa, perms) {
+                    for off in (0..mapped_bytes).step_by(PAGE_SIZE) {
+                        mgr.unmap(self.tgid, vaddr.add::<u8>(off)).ok();
+                    }
+                    for mr in &backing {
+                        for off in (0..mr.region.byte_size()).step_by(PAGE_SIZE) {
+                            mgr.unmap(self.tgid, mr.vaddr.add::<u8>(off)).ok();
+                        }
+                    }
+                    return Err(MemorySetError::AddressSpace(e));
                 }
-                return Err(MemorySetError::AddressSpace(e));
+                mapped_bytes += PAGE_SIZE;
             }
 
             backing.push(MappedRegion { region, vaddr });
@@ -386,6 +403,108 @@ impl MemorySet {
     pub unsafe fn activate(&self) -> Result<(), MemorySetError> {
         unsafe { ADDRESS_SPACE_MANAGER.read().activate(self.tgid) }?;
         Ok(())
+    }
+
+    /// 为 `fork` 按写时复制（COW）克隆当前 [`MemorySet`]：
+    ///
+    /// - 分配新的 `tgid`，在 [`ADDRESS_SPACE_MANAGER`] 中通过 `fork_cow` 复制页表并将
+    ///   父子双方可写页标记为 `W=0, COW=1`；
+    /// - 克隆全部 [`Vma`]（其 `backing` 通过 `Arc<Region>` 增加物理帧引用计数）。
+    pub fn fork_cow(&mut self) -> Result<Self, MemorySetError> {
+        let child_tgid = alloc_tgid().ok_or(MemorySetError::IdExhausted)?;
+        if let Err(e) = ADDRESS_SPACE_MANAGER.write().fork_cow(self.tgid, child_tgid) {
+            free_tgid(child_tgid);
+            return Err(MemorySetError::AddressSpace(e));
+        }
+        Ok(Self {
+            vmas: self.vmas.clone(),
+            tgid: child_tgid,
+        })
+    }
+
+    /// 尝试按写时复制（COW）处理发生在 `fault_addr` 的写缺页（`STORE_PAGE_FAULT`）。
+    ///
+    /// - 返回 `Ok(true)`：该页确为 COW 页，已完成就地提权或复制新页并更新页表与 TLB，
+    ///   调用方可直接返回用户态重试写指令；
+    /// - 返回 `Ok(false)`：该页不是 COW 页（真正的非法写访问或未映射地址）。
+    pub fn handle_cow_fault(&mut self, fault_addr: VirtualAddr) -> Result<bool, MemorySetError> {
+        let page = usize::from(fault_addr) & !(PAGE_SIZE - 1);
+        let page_va = VirtualAddr::from(page);
+
+        // 先检查页表项是否有效且带 COW 标志，并取出旧物理页号。
+        let old_pa = {
+            let mgr = ADDRESS_SPACE_MANAGER.read();
+            let Some(aspace) = mgr.user(self.tgid) else {
+                return Err(MemorySetError::AddressSpace(AddressSpaceError::NotFound));
+            };
+            let Some(pte) = aspace.pte(page_va) else {
+                return Ok(false);
+            };
+            if !pte.validate() || !pte.cow() {
+                return Ok(false);
+            }
+            let mut pa = PhysicalAddr::new();
+            pa.set_ppn(pte.ppn() as usize);
+            pa
+        };
+
+        let Some(vma) = self.vmas.iter_mut().find(|v| v.covers(page)) else {
+            return Ok(false);
+        };
+
+        // 若该页恰好由独占的 4 KiB `Arc<Region>`（强引用计数为 1）承载，直接就地恢复写权限。
+        let exact_idx = vma
+            .backing
+            .iter()
+            .position(|mr| usize::from(mr.vaddr) == page && mr.region.byte_size() == PAGE_SIZE);
+        if let Some(idx) = exact_idx
+            && Arc::strong_count(&vma.backing[idx].region) == 1
+        {
+            ADDRESS_SPACE_MANAGER
+                .write()
+                .resolve_cow(self.tgid, page_va, None)?;
+            return Ok(true);
+        }
+
+        // 否则分配新的 4 KiB 物理页，复制旧页内容，并重映射为独占可写页。
+        let new_region =
+            Arc::new(Region::new(0).ok_or(MemorySetError::Alloc(AllocError::OutOfMemory))?);
+        let new_pa = new_region.as_phys_addr();
+        unsafe {
+            ptr::copy_nonoverlapping(
+                old_pa.as_vaddr().as_ptr::<u8>(),
+                new_region.as_mut_ptr::<u8>(),
+                PAGE_SIZE,
+            );
+        }
+
+        ADDRESS_SPACE_MANAGER
+            .write()
+            .resolve_cow(self.tgid, page_va, Some(new_pa))?;
+
+        let mapped = MappedRegion {
+            region: new_region,
+            vaddr: page_va,
+        };
+        if let Some(idx) = exact_idx {
+            vma.backing[idx] = mapped;
+        } else {
+            vma.backing.push(mapped);
+        }
+
+        Ok(true)
+    }
+
+    /// 用新加载的 `other` 原地替换当前 [`MemorySet`] 的地址空间与 VMA，保留原有的 `self.tgid`。
+    ///
+    /// 用于 `execve`：避免在任务存活期间释放原 `tgid` 导致后续 `alloc_tgid` 复用冲突。
+    pub fn replace_with(&mut self, mut other: MemorySet) {
+        ADDRESS_SPACE_MANAGER
+            .write()
+            .replace(self.tgid, other.tgid);
+        self.vmas = core::mem::take(&mut other.vmas);
+        free_tgid(other.tgid);
+        core::mem::forget(other);
     }
 }
 

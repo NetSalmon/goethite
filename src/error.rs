@@ -12,7 +12,8 @@ use crate::{
 
 #[panic_handler]
 fn panic_handler(info: &PanicInfo<'_>) -> ! {
-    eprintln!("kernel panic: {}", info);
+    eprintln!("kernel panicked at : {}:", info);
+    eprintln!("{}", info.message());
     let _ = goethite_riscv64::sbi::srst::system_reset(ResetType::SHUTDOWN, ResetReason::NONE);
 
     loop {

@@ -9,30 +9,34 @@ use goethite_console::{eprintln, println};
 use crate::{
     FDT_ADDR,
     device::{
-        desc::DEVICE_DESC_MANAGER, driver, ns16550a::Ns16550aDriver, plic,
+        desc::DEVICE_DESC_MANAGER, driver, ns16550a::Ns16550aDriver, plic, ramfb::RamfbDriver,
         virtio_blk::VirtioBlkDriver, virtio_net::VirtioNetDriver, virtio_rng::VirtioRngDriver,
     },
     error::{KernelError, KernelResult},
     mm::{address_space::ADDRESS_SPACE_MANAGER, alloc::FRAME_ALLOCATOR, page_table::PageTableEntryFlags},
 };
 
-/// 探测设备树中的全部设备：注册内置驱动、匹配、probe 并登记进设备管理器。
+/// 探测设备树中的全部设备：注册内置驱动、匹配、probe 并登记进设备管理器，
+/// 同时注册内置虚拟内存 / 标准 I/O 设备（`null`、`zero`、`stdin`、`stdout`、`stderr`）。
 ///
 /// 返回成功登记的设备数。需在 [`init_page_table`] 完成设备 MMIO 映射之后调用。
 pub fn init_devices() -> usize {
     register_builtin_drivers();
-    driver::probe_all()
+    let probed = driver::probe_all();
+    let virtual_devs = crate::device::mem::init();
+    probed + virtual_devs
 }
 
 /// 注册内核内置的块 / 字符设备驱动。
 ///
 /// 各驱动在 [`driver::register`] 时申请主设备号（UART 用预设 TTY、块设备用
-/// 预设 BLOCK、网卡用预设 NET、熵源用预设 MISC）。
+/// 预设 BLOCK、网卡用预设 NET、熵源用预设 MISC、帧缓冲用预设 FB）。
 fn register_builtin_drivers() {
     let _ = driver::register(Arc::new(Ns16550aDriver));
     let _ = driver::register(Arc::new(VirtioBlkDriver));
     let _ = driver::register(Arc::new(VirtioNetDriver));
     let _ = driver::register(Arc::new(VirtioRngDriver));
+    let _ = driver::register(Arc::new(RamfbDriver));
 }
 
 /// 初始化中断控制器（PLIC）。
@@ -50,7 +54,7 @@ pub fn init_interrupts() {
     }
 }
 
-/// 挂载根文件系统（MINIX v1）。
+/// 挂载根文件系统（MINIX v1）与设备文件系统（`/dev`）。
 ///
 /// 需在 [`init_devices`] 之后调用。没有可挂载的块设备时只记录错误、不 panic，
 /// 内核仍可继续运行（只是没有根文件系统）。
@@ -60,6 +64,13 @@ pub fn init_filesystem() {
             println!("mounted minix v1 root filesystem");
         }
         Err(err) => eprintln!("failed to mount root filesystem: {err}"),
+    }
+
+    match crate::fs::init_devfs() {
+        Ok(()) => {
+            println!("mounted devfs at /dev");
+        }
+        Err(err) => eprintln!("failed to mount devfs: {err}"),
     }
 }
 

@@ -6,10 +6,19 @@
 //! 伙伴系统分配、`Drop` 时归还；写入 fw_cfg 的是其物理地址。
 #![allow(dead_code)]
 
+use alloc::sync::Arc;
+
 use goethite_macros::lazy;
+use goethite_sync::SpinLock;
 
 use crate::{
-    device::{fw_cfg::FwCfg, virt_to_phys},
+    device::{
+        Device, DeviceError, DeviceNaming, DeviceResult, FileType, Major,
+        desc::DeviceDesc,
+        driver::Driver,
+        fw_cfg::FwCfg,
+        preset, virt_to_phys,
+    },
     mm::alloc::FRAME_ALLOCATOR,
 };
 
@@ -90,9 +99,8 @@ pub struct Ramfb {
 }
 
 impl Ramfb {
-    /// 探测 fw_cfg 并定位 `etc/ramfb`，分配帧缓冲并下发配置。
-    pub fn probe() -> Option<Self> {
-        let fw = FwCfg::probe()?;
+    /// 基于已探测到的 `fw_cfg` 定位 `etc/ramfb`，分配帧缓冲并下发配置。
+    pub fn from_fw_cfg(fw: FwCfg) -> Option<Self> {
         let (selector, size) = fw.find_file("etc/ramfb")?;
         if size != RAMFB_CFG_SIZE {
             return None;
@@ -122,6 +130,11 @@ impl Ramfb {
             height,
             stride,
         })
+    }
+
+    /// 探测 fw_cfg 并定位 `etc/ramfb`，分配帧缓冲并下发配置。
+    pub fn probe() -> Option<Self> {
+        Self::from_fw_cfg(FwCfg::probe()?)
     }
 
     /// fw_cfg 访问器（供后续查询 / 调试）。
@@ -227,6 +240,59 @@ impl Ramfb {
         // 四周白色边框，便于确认帧缓冲范围。
         self.fill_rect(0, 0, w, 1, rgb(0xFF, 0xFF, 0xFF));
         self.fill_rect(0, CARD_HEIGHT - 1, w, 1, rgb(0xFF, 0xFF, 0xFF));
+    }
+}
+
+/// 面向 [`Device`] / devfs 的 ramfb 字符设备封装（`/dev/fb0` 等）。
+pub struct RamfbDevice(SpinLock<Ramfb>);
+
+impl Device for RamfbDevice {
+    fn read(&self, buf: &mut [u8]) -> DeviceResult {
+        let mut fb = self.0.lock();
+        let bytes = fb.frame.as_bytes_mut();
+        let n = buf.len().min(bytes.len());
+        buf[..n].copy_from_slice(&bytes[..n]);
+        Ok(n)
+    }
+
+    fn write(&self, buf: &[u8]) -> DeviceResult {
+        let mut fb = self.0.lock();
+        let bytes = fb.frame.as_bytes_mut();
+        let n = buf.len().min(bytes.len());
+        bytes[..n].copy_from_slice(&buf[..n]);
+        Ok(n)
+    }
+}
+
+/// ramfb 显示设备的驱动：通过 `qemu,fw-cfg-mmio` 探测 `etc/ramfb`，
+/// 登记为字符设备（`/dev/fb0`、`/dev/fb1`、…）。
+pub struct RamfbDriver;
+
+impl Driver for RamfbDriver {
+    fn name(&self) -> &'static str {
+        "ramfb"
+    }
+
+    fn compatibles(&self) -> &'static [&'static str] {
+        &["qemu,fw-cfg-mmio"]
+    }
+
+    fn major(&self) -> Major {
+        Major::Static(preset::FB)
+    }
+
+    fn file_type(&self) -> FileType {
+        FileType::CHR
+    }
+
+    fn naming(&self) -> DeviceNaming {
+        DeviceNaming::Numeric("fb")
+    }
+
+    fn probe(&self, desc: &Arc<DeviceDesc>) -> Result<Arc<dyn Device>, DeviceError> {
+        let fw = FwCfg::from_desc(desc).ok_or(DeviceError::NotReady)?;
+        let fb = Ramfb::from_fw_cfg(fw).ok_or(DeviceError::NotReady)?;
+        Ok(Arc::new(RamfbDevice(SpinLock::new(fb))))
     }
 }
 

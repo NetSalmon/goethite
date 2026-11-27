@@ -35,7 +35,9 @@ bench = false
 [workspace]
 members = [
     "crates/*",
-    "userland"
+    "userland",
+    "userland/librs",
+    "userland/libc",
 ]
 
 [profile.dev]
